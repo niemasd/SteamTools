@@ -10,6 +10,7 @@ STEAM_COMMUNITY_BASE_URL_SUFFIX = "games?xml=1"
 TEXT_WELCOME = "Welcome to SteamLibrary! This simple tool aims to provide a user-friendly command-line interface for navigating your Steam library."
 TEXT_USER_PROMPT = "Please enter your Steam username:"
 ERROR_IMPORT_PROMPT_TOOLKIT = "Unable to import 'prompt_toolkit'. Install via: 'pip install prompt_toolkit'"
+ERROR_INVALID_GAME = "Invalid game"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
 
 # built-in imports
@@ -27,7 +28,7 @@ def error_app(s):
 
 # non-built-in imports
 try:
-    from prompt_toolkit.shortcuts import input_dialog, message_dialog
+    from prompt_toolkit.shortcuts import input_dialog, message_dialog, radiolist_dialog
 except:
     error(ERROR_IMPORT_PROMPT_TOOLKIT)
 
@@ -36,6 +37,32 @@ APPS = {
     'welcome': message_dialog(title=WINDOW_TITLE, text=TEXT_WELCOME),
     'user_prompt': input_dialog(title=WINDOW_TITLE, text=TEXT_USER_PROMPT)
 }
+
+# helper class to represent individual games
+class Game:
+    # constructor
+    def __init__(self, game):
+        self.data = dict()
+        for item in game:
+            self.data[item.tag] = item.text
+        if 'name' not in self.data:
+            error_app("%s: %s" % (ERROR_INVALID_GAME, str(game)))
+
+    # str function
+    def __str__(self):
+        return str(self.data)
+
+    # comparison functions
+    def __lt__(self, o):
+        return self.data['name'].lower() < o.data['name'].lower()
+    def __le__(self, o):
+        return self.data['name'].lower() <= o.data['name'].lower()
+    def __gt__(self, o):
+        return self.data['name'].lower() > o.data['name'].lower()
+    def __ge__(self, o):
+        return self.data['name'].lower() >= o.data['name'].lower()
+    def __eq__(self, o):
+        return self.data == o.data
 
 # main content
 if __name__ == "__main__":
@@ -55,4 +82,9 @@ if __name__ == "__main__":
         pass
     if xml_games is None:
         error_app(ERROR_LOAD_GAMES_FAILED)
-    print(list(xml_games))
+    games_list = sorted(Game(xml_game) for xml_game in xml_games)
+
+    # view games
+    while True:
+        game_select = radiolist_dialog(title=WINDOW_TITLE, text="HELLO", values=[(game,game.data['name']) for game in games_list]).run()
+        print(game_select); exit()
