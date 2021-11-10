@@ -4,13 +4,19 @@ SteamLibrary (Niema Moshiri 2021)
 '''
 
 # useful constants
-WINDOW_TITLE = "SteamLibrary - Niema Moshiri"
+VERSION = '0.0.1'
+WINDOW_TITLE = "SteamLibrary v%s" % VERSION
+LINE_WIDTH = 120
+
+# URL stuff
 STEAM_COMMUNITY_BASE_URL = "https://steamcommunity.com/id"
 STEAM_COMMUNITY_BASE_URL_SUFFIX = "games?xml=1"
 STEAM_APP_DETAILS_BASE_URL = "https://store.steampowered.com/api/appdetails?appids="
+
+# messages
 TEXT_LOADING_USER_DATA = "Loading user data"
 TEXT_USER_PROMPT = "Please enter your Steam username:"
-TEXT_WELCOME = "Welcome to SteamLibrary! This simple tool aims to provide a user-friendly command-line interface for navigating your Steam library."
+TEXT_WELCOME = "Welcome to SteamLibrary! This simple tool aims to provide a user-friendly command-line interface for navigating your Steam library.\n\nMade by Niema Moshiri (niemasd), 2021"
 ERROR_IMPORT_PROMPT_TOOLKIT = "Unable to import 'prompt_toolkit'. Install via: 'pip install prompt_toolkit'"
 ERROR_INVALID_GAME = "Invalid game"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
@@ -65,6 +71,8 @@ class Game:
             self.details = jloads(urlopen("%s%s" % (STEAM_APP_DETAILS_BASE_URL, self.appID)).read().decode())[self.appID]['data']
         except:
             self.details = dict()
+        if 'supported_languages' in self.details:
+            self.details['supported_languages'] = self.details['supported_languages'].replace('<strong>','').replace('</strong>','').replace('<br>',', ').split(', ')
 
     # view game app
     def view_app(self):
@@ -84,15 +92,21 @@ class Game:
         if 'achievements' in self.details and 'total' in self.details['achievements']:
             text += '<ansired>- Achievements:</ansired> %s\n' % self.details['achievements']['total']
         if 'genres' in self.details:
-            text += '<ansired>- Genres:</ansired> %s\n' % ', '.join(sorted(g['description'] for g in self.details['genres']))
+            text += '<ansired>- Genres:</ansired>\n%s\n' % '\n'.join(sorted('  - %s' % g['description'] for g in self.details['genres']))
         if 'categories' in self.details:
-            text += '<ansired>- Categories:</ansired> %s\n' % ', '.join(sorted(c['description'] for c in self.details['categories']))
+            text += '<ansired>- Categories:</ansired>\n%s\n' % '\n'.join(sorted('  - %s' % c['description'] for c in self.details['categories']))
         #if 'controller_support' in self.details:
         #    text += '<ansired>- Controller Support:</ansired> %s\n' % self.details['controller_support']
-        if 'supported_languages' in self.details:
-            text += '<ansired>- Supported Languages:</ansired> %s\n' % self.details['supported_languages'].replace('<strong>','').replace('</strong>','').replace('<br>','; ')
-        #if 'short_description' in self.details:
-        #    text += '<ansired>- Description:</ansired> %s\n' % self.details['short_description']
+        #if 'supported_languages' in self.details:
+        #    text += '<ansired>- Supported Languages:</ansired>\n%s\n' % '\n'.join('  - %s' % l for l in self.details['supported_languages'])
+        if 'short_description' in self.details:
+            col = LINE_WIDTH
+            text += '<ansired>- Short Description:</ansired>'
+            for word in self.details['short_description'].split(' '):
+                if col + len(word) + 1 >= LINE_WIDTH:
+                    text += '\n    '; col = 0
+                text += (word + ' '); col += (len(word) + 1)
+            text += '\n'
         message_dialog(title=self.name, text=HTML(text)).run()
 
     # str function
@@ -136,7 +150,10 @@ if __name__ == "__main__":
     games_map = {game.appID:game for game in games_list}
 
     # view games (might need to move this into its own function if I want to add a filtering option)
-    game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="HELLO", values=[(game,game.name) for game in games_list])
+    try:
+        game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="HELLO", values=[(game,game.name) for game in games_list])
+    except:
+        error(ERROR_LOAD_GAMES_FAILED)
     while True:
         game_selection = game_list_dialog.run()
         if game_selection is None:
