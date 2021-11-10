@@ -57,36 +57,42 @@ class Game:
             error_app("%s: %s" % (ERROR_INVALID_GAME, str(game)))
         self.name = data['name']
         self.appID = data['appID']
+        self.details = None
+
+    # load game details
+    def load_details(self):
+        try:
+            self.details = jloads(urlopen("%s%s" % (STEAM_APP_DETAILS_BASE_URL, self.appID)).read().decode())[self.appID]['data']
+        except:
+            self.details = dict()
 
     # view game app
     def view_app(self):
-        try:
-            details = jloads(urlopen("%s%s" % (STEAM_APP_DETAILS_BASE_URL, self.appID)).read().decode())[self.appID]['data']
-        except:
-            details = dict()
+        if self.details is None:
+            self.load_details()
         text = ''
         #text += '<ansired>- Name: </ansired> %s\n' % self.name
         text += '<ansired>- App ID:</ansired> %s\n' % self.appID
-        if 'release_date' in details and 'date' in details['release_date']:
-            text += '<ansired>- Release Date:</ansired> %s\n' % details['release_date']['date']
-        if 'developers' in details:
-            text += '<ansired>- Developers:</ansired> %s\n' % ', '.join(details['developers'])
-        if 'publishers' in details:
-            text += '<ansired>- Publishers:</ansired> %s\n' % ', '.join(details['publishers'])
-        if 'price_overview' in details and 'final_formatted' in details['price_overview']:
-            text += '<ansired>- Price:</ansired> %s\n' % details['price_overview']['final_formatted']
-        if 'achievements' in details and 'total' in details['achievements']:
-            text += '<ansired>- Achievements:</ansired> %s\n' % details['achievements']['total']
-        if 'genres' in details:
-            text += '<ansired>- Genres:</ansired> %s\n' % ', '.join(sorted(g['description'] for g in details['genres']))
-        if 'categories' in details:
-            text += '<ansired>- Categories:</ansired> %s\n' % ', '.join(sorted(c['description'] for c in details['categories']))
-        #if 'controller_support' in details:
-        #    text += '<ansired>- Controller Support:</ansired> %s\n' % details['controller_support']
-        if 'supported_languages' in details:
-            text += '<ansired>- Supported Languages:</ansired> %s\n' % details['supported_languages'].replace('<strong>','').replace('</strong>','').replace('<br>','; ')
-        #if 'short_description' in details:
-        #    text += '<ansired>- Description:</ansired> %s\n' % details['short_description']
+        if 'release_date' in self.details and 'date' in self.details['release_date']:
+            text += '<ansired>- Release Date:</ansired> %s\n' % self.details['release_date']['date']
+        if 'developers' in self.details:
+            text += '<ansired>- Developers:</ansired> %s\n' % ', '.join(self.details['developers'])
+        if 'publishers' in self.details:
+            text += '<ansired>- Publishers:</ansired> %s\n' % ', '.join(self.details['publishers'])
+        if 'price_overview' in self.details and 'final_formatted' in self.details['price_overview']:
+            text += '<ansired>- Price:</ansired> %s\n' % self.details['price_overview']['final_formatted']
+        if 'achievements' in self.details and 'total' in self.details['achievements']:
+            text += '<ansired>- Achievements:</ansired> %s\n' % self.details['achievements']['total']
+        if 'genres' in self.details:
+            text += '<ansired>- Genres:</ansired> %s\n' % ', '.join(sorted(g['description'] for g in self.details['genres']))
+        if 'categories' in self.details:
+            text += '<ansired>- Categories:</ansired> %s\n' % ', '.join(sorted(c['description'] for c in self.details['categories']))
+        #if 'controller_support' in self.details:
+        #    text += '<ansired>- Controller Support:</ansired> %s\n' % self.details['controller_support']
+        if 'supported_languages' in self.details:
+            text += '<ansired>- Supported Languages:</ansired> %s\n' % self.details['supported_languages'].replace('<strong>','').replace('</strong>','').replace('<br>','; ')
+        #if 'short_description' in self.details:
+        #    text += '<ansired>- Description:</ansired> %s\n' % self.details['short_description']
         message_dialog(title=self.name, text=HTML(text)).run()
 
     # str function
