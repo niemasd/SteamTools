@@ -10,11 +10,12 @@ from prompt_toolkit.shortcuts import message_dialog
 WINDOW_TITLE = "SteamLibrary - Niema Moshiri"
 STEAM_COMMUNITY_BASE_URL = "https://steamcommunity.com/id"
 
-# welcome message
-def welcome_message():
-  return message_dialog(title=WINDOW_TITLE, text="hola")
+# apps
+APPS = {
+    'welcome': message_dialog(title=WINDOW_TITLE, text="hola"),
+}
 
 # main content
 if __name__ == "__main__":
-  # show welcome message
-  welcome_message()
+    # show welcome message
+    APPS['welcome'].run()
