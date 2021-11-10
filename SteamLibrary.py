@@ -28,6 +28,7 @@ def error_app(s):
 
 # non-built-in imports
 try:
+    from prompt_toolkit.formatted_text import HTML
     from prompt_toolkit.shortcuts import input_dialog, message_dialog, radiolist_dialog
 except:
     error(ERROR_IMPORT_PROMPT_TOOLKIT)
@@ -48,6 +49,10 @@ class Game:
         if 'name' not in self.data:
             error_app("%s: %s" % (ERROR_INVALID_GAME, str(game)))
 
+    # view game app
+    def view_app(self):
+        message_dialog(title=self.data['name'], text=HTML('\n'.join('<ansired>- %s:</ansired> %s' % (k,v) for k,v in self.data.items()))).run()
+
     # str function
     def __str__(self):
         return str(self.data)
@@ -67,13 +72,13 @@ class Game:
 # main content
 if __name__ == "__main__":
     # show welcome message and prompt user for Steam username
-    APPS['welcome'].run()
-    username = APPS['user_prompt'].run()
+    APPS['welcome'].run(); username = APPS['user_prompt'].run()
+    if username is None or username == '':
+        exit(1)
 
     # load user data
     url = "%s/%s/%s" % (STEAM_COMMUNITY_BASE_URL, username, STEAM_COMMUNITY_BASE_URL_SUFFIX)
-    xml = ElementTree.parse(urlopen(url))
-    xml_games = None
+    xml = ElementTree.parse(urlopen(url)); xml_games = None
     try:
         for curr in xml.getroot():
             if curr.tag == 'games':
@@ -85,6 +90,9 @@ if __name__ == "__main__":
     games_list = sorted(Game(xml_game) for xml_game in xml_games)
 
     # view games
+    game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="HELLO", values=[(game,game.data['name']) for game in games_list])
     while True:
-        game_select = radiolist_dialog(title=WINDOW_TITLE, text="HELLO", values=[(game,game.data['name']) for game in games_list]).run()
-        print(game_select); exit()
+        game_selection = game_list_dialog.run()
+        if game_selection is None:
+            break
+        game_selection.view_app()
