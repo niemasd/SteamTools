@@ -23,7 +23,7 @@ ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
 
 # built-in imports
 from json import loads as jloads
-from sys import stderr, stdout
+from sys import argv, stderr, stdout
 from urllib.request import urlopen
 from xml.etree import ElementTree
 
@@ -127,8 +127,16 @@ class Game:
 
 # main content
 if __name__ == "__main__":
+    # parse CLI arg (if applicable)
+    username = None
+    if len(argv) > 2 or (len(argv) == 2 and argv[1].lstrip('-').lower() in {'h','help'}):
+        print("USAGE: %s [steam_username]" % argv[0]); exit(1)
+    elif len(argv) == 2:
+        username = argv[1].strip()
+
     # show welcome message and prompt user for Steam username
-    APPS['welcome'].run(); username = APPS['user_prompt'].run()
+    if username is None:
+        APPS['welcome'].run(); username = APPS['user_prompt'].run()
     if username is None or username == '':
         exit(1)
 
@@ -151,7 +159,7 @@ if __name__ == "__main__":
 
     # view games (might need to move this into its own function if I want to add a filtering option)
     try:
-        game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="HELLO", values=[(game,game.name) for game in games_list])
+        game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="Games List", values=[(game,game.name) for game in games_list])
     except:
         error(ERROR_LOAD_GAMES_FAILED)
     while True:
