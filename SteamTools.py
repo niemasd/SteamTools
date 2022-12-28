@@ -39,6 +39,15 @@ def error(s):
 def error_app(s):
     message_dialog(title=WINDOW_TITLE, text="ERROR: %s" % s).run(); exit(1)
 
+# break a long string into multiple lines
+def break_string(s, max_width=LINE_WIDTH):
+    col = 0; text = ''
+    for word in s.split(' '):
+        if col + len(word) + 1 >= max_width:
+            text += '\n'; col = 0
+        text += (word + ' '); col += (len(word) + 1)
+    return text
+
 # non-built-in imports
 try:
     from prompt_toolkit.formatted_text import HTML
@@ -95,17 +104,14 @@ class Game:
             text += '<ansired>- Genres:</ansired>\n%s\n' % '\n'.join(sorted('  - %s' % g['description'] for g in self.details['genres']))
         if 'categories' in self.details:
             text += '<ansired>- Categories:</ansired>\n%s\n' % '\n'.join(sorted('  - %s' % c['description'] for c in self.details['categories']))
-        #if 'controller_support' in self.details:
-        #    text += '<ansired>- Controller Support:</ansired> %s\n' % self.details['controller_support']
-        #if 'supported_languages' in self.details:
-        #    text += '<ansired>- Supported Languages:</ansired>\n%s\n' % '\n'.join('  - %s' % l for l in self.details['supported_languages'])
+        if 'controller_support' in self.details:
+            text += '<ansired>- Controller Support:</ansired> %s\n' % self.details['controller_support']
+        if 'supported_languages' in self.details:
+            text += '<ansired>- Supported Languages:</ansired>\n%s\n' % '\n'.join('  - %s' % l for l in self.details['supported_languages'])
         if 'short_description' in self.details:
             col = LINE_WIDTH
             text += '<ansired>- Short Description:</ansired>'
-            for word in self.details['short_description'].split(' '):
-                if col + len(word) + 1 >= LINE_WIDTH:
-                    text += '\n    '; col = 0
-                text += (word + ' '); col += (len(word) + 1)
+            text += break_string(self.details['short_description'])#.replace('\n', '\n    ')
             text += '\n'
         message_dialog(title=self.name, text=HTML(text)).run()
 
@@ -125,6 +131,35 @@ class Game:
     def __eq__(self, o):
         return self.appID == o.appID
 
+# load user data
+def load_user_data(username):
+    message(s="%s: %s" % (TEXT_LOADING_USER_DATA, username))
+    url = "%s/%s/%s" % (STEAM_COMMUNITY_BASE_URL, username, STEAM_COMMUNITY_BASE_URL_SUFFIX)
+    xml = ElementTree.parse(urlopen(url)); xml_games = None
+    try:
+        for curr in xml.getroot():
+            if curr.tag == 'games':
+                xml_games = curr; break
+    except:
+        pass
+    if xml_games is None:
+        error_app(ERROR_LOAD_GAMES_FAILED)
+    games_list = sorted(Game(xml_game) for xml_game in xml_games)
+    games_map = {game.appID:game for game in games_list}
+    return games_list, games_map
+
+# view games
+def view_games(games_list):
+    try:
+        game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="Games List", values=[(game,game.name) for game in games_list])
+    except:
+        error(ERROR_LOAD_GAMES_FAILED)
+    while True:
+        game_selection = game_list_dialog.run()
+        if game_selection is None:
+            break
+        game_selection.view_app()
+
 # main content
 if __name__ == "__main__":
     # parse CLI arg (if applicable)
@@ -141,29 +176,5 @@ if __name__ == "__main__":
         exit(1)
 
     # load user data
-    message(s="%s: %s" % (TEXT_LOADING_USER_DATA, username))
-    url = "%s/%s/%s" % (STEAM_COMMUNITY_BASE_URL, username, STEAM_COMMUNITY_BASE_URL_SUFFIX)
-    xml = ElementTree.parse(urlopen(url)); xml_games = None
-    try:
-        for curr in xml.getroot():
-            if curr.tag == 'games':
-                xml_games = curr; break
-    except:
-        pass
-    if xml_games is None:
-        error_app(ERROR_LOAD_GAMES_FAILED)
-
-    # load game data
-    games_list = sorted(Game(xml_game) for xml_game in xml_games)
-    games_map = {game.appID:game for game in games_list}
-
-    # view games (might need to move this into its own function if I want to add a filtering option)
-    try:
-        game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="Games List", values=[(game,game.name) for game in games_list])
-    except:
-        error(ERROR_LOAD_GAMES_FAILED)
-    while True:
-        game_selection = game_list_dialog.run()
-        if game_selection is None:
-            break
-        game_selection.view_app()
+    games_list, games_map = load_user_data(username)
+    view_games(games_list)
