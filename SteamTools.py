@@ -91,7 +91,7 @@ class Game:
     def view_app(self):
         if self.details is None:
             self.load_details()
-        text += '<ansired>- App ID:</ansired> %s' % self.appID
+        text = '<ansired>- App ID:</ansired> %s' % self.appID
         if 'release_date' in self.details and 'date' in self.details['release_date']:
             text += '\n<ansired>- Release Date:</ansired> %s' % self.details['release_date']['date']
         if 'developers' in self.details:
@@ -132,29 +132,29 @@ class Game:
     def __eq__(self, o):
         return self.appID == o.appID
 
-# load user data
-def load_user_data(username):
-    message(s="%s: %s" % (TEXT_LOADING_USER_DATA, username))
-    url = "%s/%s/%s" % (STEAM_COMMUNITY_BASE_URL, username, STEAM_COMMUNITY_BASE_URL_SUFFIX)
-    xml = ElementTree.parse(urlopen(url)); xml_games = None
-    try:
-        for curr in xml.getroot():
-            if curr.tag == 'games':
-                xml_games = curr; break
-    except:
-        pass
-    if xml_games is None:
-        error_app(ERROR_LOAD_GAMES_FAILED)
-    games_list = sorted(Game(xml_game) for xml_game in xml_games)
-    games_map = {game.appID:game for game in games_list}
-    return games_list, games_map
-
 # helper class to represent a user
 class User:
     # constructor
     def __init__(self, username):
+        # prepare for loading user data
+        message(s="%s: %s" % (TEXT_LOADING_USER_DATA, username))
         self.username = username
-        self.games_list, self.games_map = load_user_data(self.username)
+        url = "%s/%s/%s" % (STEAM_COMMUNITY_BASE_URL, username, STEAM_COMMUNITY_BASE_URL_SUFFIX)
+
+        # load XML entries
+        xml = ElementTree.parse(urlopen(url)); xml_games = None
+        try:
+            for curr in xml.getroot():
+                if curr.tag == 'games':
+                    xml_games = curr
+        except:
+            pass
+
+        # load game data
+        if xml_games is None:
+            error_app(ERROR_LOAD_GAMES_FAILED)
+        self.games_list = sorted(Game(xml_game) for xml_game in xml_games)
+        self.games_map = {game.appID:game for game in self.games_list}
 
     # comparison functions
     def __lt__(self, o):
