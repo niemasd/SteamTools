@@ -1,11 +1,11 @@
 #! /usr/bin/env python3
 '''
-SteamLibrary (Niema Moshiri 2021)
+SteamTools (Niema Moshiri 2021)
 '''
 
 # useful constants
 VERSION = '0.0.1'
-WINDOW_TITLE = "SteamLibrary v%s" % VERSION
+WINDOW_TITLE = "SteamTools v%s" % VERSION
 LINE_WIDTH = 120
 
 # URL stuff
@@ -16,7 +16,7 @@ STEAM_APP_DETAILS_BASE_URL = "https://store.steampowered.com/api/appdetails?appi
 # messages
 TEXT_LOADING_USER_DATA = "Loading user data"
 TEXT_USER_PROMPT = "Please enter your Steam username:"
-TEXT_WELCOME = "Welcome to SteamLibrary! This simple tool aims to provide a user-friendly command-line interface for navigating your Steam library.\n\nMade by Niema Moshiri (niemasd), 2021"
+TEXT_WELCOME = "Welcome to SteamTools! This simple tool aims to provide a user-friendly command-line interface for exploring a public Steam account.\n\nMade by Niema Moshiri (niemasd), 2021"
 ERROR_IMPORT_PROMPT_TOOLKIT = "Unable to import 'prompt_toolkit'. Install via: 'pip install prompt_toolkit'"
 ERROR_INVALID_GAME = "Invalid game"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
