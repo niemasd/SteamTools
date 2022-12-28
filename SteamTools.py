@@ -31,6 +31,10 @@ from xml.etree import ElementTree
 def message(s='', end='\n'):
     print(s, end=end); stdout.flush()
 
+# message app
+def message_app(s):
+    message_dialog(title=WINDOW_TITLE, text=s).run()
+
 # error message
 def error(s):
     print(s, file=stderr); exit(1)
@@ -87,32 +91,29 @@ class Game:
     def view_app(self):
         if self.details is None:
             self.load_details()
-        text = ''
-        #text += '<ansired>- Name: </ansired> %s\n' % self.name
-        text += '<ansired>- App ID:</ansired> %s\n' % self.appID
+        text += '<ansired>- App ID:</ansired> %s' % self.appID
         if 'release_date' in self.details and 'date' in self.details['release_date']:
-            text += '<ansired>- Release Date:</ansired> %s\n' % self.details['release_date']['date']
+            text += '\n<ansired>- Release Date:</ansired> %s' % self.details['release_date']['date']
         if 'developers' in self.details:
-            text += '<ansired>- Developers:</ansired> %s\n' % ', '.join(self.details['developers'])
+            text += '\n<ansired>- Developers:</ansired> %s' % ', '.join(self.details['developers'])
         if 'publishers' in self.details:
-            text += '<ansired>- Publishers:</ansired> %s\n' % ', '.join(self.details['publishers'])
+            text += '\n<ansired>- Publishers:</ansired> %s' % ', '.join(self.details['publishers'])
         if 'price_overview' in self.details and 'final_formatted' in self.details['price_overview']:
-            text += '<ansired>- Price:</ansired> %s\n' % self.details['price_overview']['final_formatted']
+            text += '\n<ansired>- Price:</ansired> %s' % self.details['price_overview']['final_formatted']
         if 'achievements' in self.details and 'total' in self.details['achievements']:
-            text += '<ansired>- Achievements:</ansired> %s\n' % self.details['achievements']['total']
+            text += '\n<ansired>- Achievements:</ansired> %s' % self.details['achievements']['total']
         if 'genres' in self.details:
-            text += '<ansired>- Genres:</ansired>\n%s\n' % '\n'.join(sorted('  - %s' % g['description'] for g in self.details['genres']))
+            text += '\n<ansired>- Genres:</ansired>\n%s\n' % ''.join(sorted('  - %s' % g['description'] for g in self.details['genres']))
         if 'categories' in self.details:
-            text += '<ansired>- Categories:</ansired>\n%s\n' % '\n'.join(sorted('  - %s' % c['description'] for c in self.details['categories']))
+            text += '\n<ansired>- Categories:</ansired>\n%s\n' % ''.join(sorted('  - %s' % c['description'] for c in self.details['categories']))
         if 'controller_support' in self.details:
-            text += '<ansired>- Controller Support:</ansired> %s\n' % self.details['controller_support']
+            text += '\n<ansired>- Controller Support:</ansired> %s' % self.details['controller_support']
         if 'supported_languages' in self.details:
-            text += '<ansired>- Supported Languages:</ansired>\n%s\n' % '\n'.join('  - %s' % l for l in self.details['supported_languages'])
+            text += '\n<ansired>- Supported Languages:</ansired>\n%s' % '\n'.join('  - %s' % l for l in self.details['supported_languages'])
         if 'short_description' in self.details:
             col = LINE_WIDTH
-            text += '<ansired>- Short Description:</ansired>'
+            text += '\n<ansired>- Short Description:</ansired>'
             text += break_string(self.details['short_description'])#.replace('\n', '\n    ')
-            text += '\n'
         message_dialog(title=self.name, text=HTML(text)).run()
 
     # str function
@@ -148,17 +149,39 @@ def load_user_data(username):
     games_map = {game.appID:game for game in games_list}
     return games_list, games_map
 
-# view games
-def view_games(games_list):
-    try:
-        game_list_dialog = radiolist_dialog(title=WINDOW_TITLE, text="Games List", values=[(game,game.name) for game in games_list])
-    except:
-        error(ERROR_LOAD_GAMES_FAILED)
-    while True:
-        game_selection = game_list_dialog.run()
-        if game_selection is None:
-            break
-        game_selection.view_app()
+# helper class to represent a user
+class User:
+    # constructor
+    def __init__(self, username):
+        self.username = username
+        self.games_list, self.games_map = load_user_data(self.username)
+
+    # comparison functions
+    def __lt__(self, o):
+        return self.username.lower() < o.username.lower()
+    def __le__(self, o):
+        return self.username.lower() <= o.username.lower()
+    def __gt__(self, o):
+        return self.username.lower() > o.username.lower()
+    def __ge__(self, o):
+        return self.username.lower() >= o.username.lower()
+    def __eq__(self, o):
+        return self.username == o.username
+
+    # user main page
+    def view_main(self):
+        text = '<ansired>- Number of Games:</ansired> %d' % len(self.games_list)
+        return radiolist_dialog(title=self.username, text=HTML(text), values=[(self.view_games,"Games")]).run()
+
+    # view games
+    def view_games(self):
+        game_list_dialog = radiolist_dialog(title="Games List (%s)" % self.username, values=[(game,game.name) for game in self.games_list])
+        while True:
+            game_selection = game_list_dialog.run()
+            if game_selection is None:
+                break
+            game_selection.view_app()
+        return self.view_main
 
 # main content
 if __name__ == "__main__":
@@ -175,6 +198,7 @@ if __name__ == "__main__":
     if username is None or username == '':
         exit(1)
 
-    # load user data
-    games_list, games_map = load_user_data(username)
-    view_games(games_list)
+    # run app
+    user = User(username); curr_view = user.view_main
+    while curr_view is not None:
+        curr_view = curr_view()
