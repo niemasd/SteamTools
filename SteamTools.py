@@ -10,8 +10,8 @@ LINE_WIDTH = 120
 
 # URL stuff
 STEAM_COMMUNITY_BASE_URL = "https://steamcommunity.com/id"
-STEAM_COMMUNITY_BASE_URL_SUFFIX = "games?xml=1"
 STEAM_APP_DETAILS_BASE_URL = "https://store.steampowered.com/api/appdetails?appids="
+STEAM_URL_SUFFIX_XML = "?xml=1"
 
 # messages
 TEXT_LOADING_USER_DATA = "Loading user data"
@@ -139,21 +139,38 @@ class User:
         # prepare for loading user data
         message(s="%s: %s" % (TEXT_LOADING_USER_DATA, username))
         self.username = username
-        url = "%s/%s/%s" % (STEAM_COMMUNITY_BASE_URL, username, STEAM_COMMUNITY_BASE_URL_SUFFIX)
+        self.url_community = "%s/%s" % (STEAM_COMMUNITY_BASE_URL, self.username)
+        self.url_games = "%s/games" % self.url_community
 
-        # load XML entries
-        #print(urlopen(url).read().decode()); exit()
-        xml = ElementTree.parse(urlopen(url)); xml_games = None
-        try:
-            for curr in xml.getroot():
+        # load user data
+        xml = ElementTree.parse(urlopen(self.url_community + STEAM_URL_SUFFIX_XML))
+        for curr in xml.getroot():
+            try:
                 if curr.tag == 'steamID64':
-                    self.steamID64 = curr.text
-                elif curr.tag == 'games':
-                    xml_games = curr
-        except:
-            pass
+                    self.steamID64 = curr.text.strip()
+                elif curr.tag == 'stateMessage':
+                    self.online_state = curr.text.strip()
+                elif curr.tag == 'avatarFull':
+                    self.url_avatar = curr.text.strip()
+                elif curr.tag == 'memberSince':
+                    self.member_since = curr.text.strip()
+                elif curr.tag == 'location':
+                    self.location = curr.text.strip()
+                elif curr.tag == 'realname':
+                    self.real_name = curr.text.strip()
+            except:
+                pass
 
         # load game data
+        xml = ElementTree.parse(urlopen(self.url_games + STEAM_URL_SUFFIX_XML)); xml_games = None
+        for curr in xml.getroot():
+            try:
+                if curr.tag == 'steamID64':
+                    self.steamID64 = curr.text
+                if curr.tag == 'games':
+                    xml_games = curr; break
+            except:
+                pass
         if xml_games is None:
             error_app(ERROR_LOAD_GAMES_FAILED)
         self.games_list = sorted(Game(xml_game) for xml_game in xml_games)
@@ -174,8 +191,15 @@ class User:
     # user main page
     def view_main(self):
         text = '<ansired>- SteamID64:</ansired> %s' % self.steamID64
-        text += '\n<ansired>- Number of Games:</ansired> %d' % len(self.games_list)
-        return radiolist_dialog(title=self.username, text=HTML(text), values=[(self.view_games,"Games")]).run()
+        if hasattr(self, 'real_name'):
+            text += '\n<ansired>- Real Name:</ansired> %s' % self.real_name
+        if hasattr(self, 'location'):
+            text += '\n<ansired>- Location:</ansired> %s' % self.location
+        if hasattr(self, 'member_since'):
+            text += '\n<ansired>- Member Since:</ansired> %s' % self.member_since
+        if hasattr(self, 'games_list'):
+            text += '\n<ansired>- Games Owned:</ansired> %d' % len(self.games_list)
+        return radiolist_dialog(title='%s (%s)' % (self.username, self.online_state), text=HTML(text.strip()), values=[(self.view_games,"Games")]).run()
 
     # view games
     def view_games(self):
