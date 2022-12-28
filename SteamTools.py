@@ -142,10 +142,13 @@ class User:
         url = "%s/%s/%s" % (STEAM_COMMUNITY_BASE_URL, username, STEAM_COMMUNITY_BASE_URL_SUFFIX)
 
         # load XML entries
+        #print(urlopen(url).read().decode()); exit()
         xml = ElementTree.parse(urlopen(url)); xml_games = None
         try:
             for curr in xml.getroot():
-                if curr.tag == 'games':
+                if curr.tag == 'steamID64':
+                    self.steamID64 = curr.text
+                elif curr.tag == 'games':
                     xml_games = curr
         except:
             pass
@@ -170,7 +173,8 @@ class User:
 
     # user main page
     def view_main(self):
-        text = '<ansired>- Number of Games:</ansired> %d' % len(self.games_list)
+        text = '<ansired>- SteamID64:</ansired> %s' % self.steamID64
+        text += '\n<ansired>- Number of Games:</ansired> %d' % len(self.games_list)
         return radiolist_dialog(title=self.username, text=HTML(text), values=[(self.view_games,"Games")]).run()
 
     # view games
