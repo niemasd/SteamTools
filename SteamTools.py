@@ -19,6 +19,7 @@ TEXT_USER_PROMPT = "Please enter your Steam username:"
 TEXT_WELCOME = "Welcome to SteamTools! This simple tool aims to provide a user-friendly command-line interface for exploring a public Steam account.\n\nMade by Niema Moshiri (niemasd), 2021"
 ERROR_IMPORT_PROMPT_TOOLKIT = "Unable to import 'prompt_toolkit'. Install via: 'pip install prompt_toolkit'"
 ERROR_INVALID_GAME = "Invalid game"
+ERROR_INVALID_GAMES_LIST_MODE = "Invalid games list mode"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
 
 # built-in imports
@@ -87,8 +88,8 @@ class Game:
         if 'supported_languages' in self.details:
             self.details['supported_languages'] = self.details['supported_languages'].replace('<strong>','').replace('</strong>','').replace('<br>',', ').split(', ')
 
-    # view game app
-    def view_app(self):
+    # view game details
+    def view_details(self):
         if self.details is None:
             self.load_details()
         text = '<ansired>- App ID:</ansired> %s' % self.appID
@@ -103,13 +104,13 @@ class Game:
         if 'achievements' in self.details and 'total' in self.details['achievements']:
             text += '\n<ansired>- Achievements:</ansired> %s' % self.details['achievements']['total']
         if 'genres' in self.details:
-            text += '\n<ansired>- Genres:</ansired>\n%s\n' % ''.join(sorted('  - %s' % g['description'] for g in self.details['genres']))
+            text += '\n<ansired>- Genres:</ansired> %s' % break_string(', '.join(sorted(g['description'] for g in self.details['genres'])))
         if 'categories' in self.details:
-            text += '\n<ansired>- Categories:</ansired>\n%s\n' % ''.join(sorted('  - %s' % c['description'] for c in self.details['categories']))
+            text += '\n<ansired>- Categories:</ansired> %s' % break_string(', '.join(c['description'] for c in self.details['categories']))
         if 'controller_support' in self.details:
             text += '\n<ansired>- Controller Support:</ansired> %s' % self.details['controller_support']
         if 'supported_languages' in self.details:
-            text += '\n<ansired>- Supported Languages:</ansired>\n%s' % '\n'.join('  - %s' % l for l in self.details['supported_languages'])
+            text += '\n<ansired>- Supported Languages:</ansired> %s' % break_string(', '.join(self.details['supported_languages']))
         if 'short_description' in self.details:
             col = LINE_WIDTH
             text += '\n<ansired>- Short Description:</ansired>'
@@ -197,19 +198,33 @@ class User:
             text += '\n<ansired>- Location:</ansired> %s' % self.location
         if hasattr(self, 'member_since'):
             text += '\n<ansired>- Member Since:</ansired> %s' % self.member_since
-        if hasattr(self, 'games_list'):
-            text += '\n<ansired>- Games Owned:</ansired> %d' % len(self.games_list)
-        return radiolist_dialog(title='%s (%s)' % (self.username, self.online_state), text=HTML(text.strip()), values=[(self.view_games,"Games")]).run()
+        return radiolist_dialog(title='%s (%s)' % (self.username, self.online_state), text=HTML(text.strip()), values=[
+            (self.view_library, HTML("<ansiblue>View Library</ansiblue> (%d games)" % len(self.games_list))),
+            (self.view_achievements, HTML("<ansiblue>View Achievements</ansiblue>")),
+        ]).run()
 
     # view games
-    def view_games(self):
-        game_list_dialog = radiolist_dialog(title="Games List (%s)" % self.username, values=[(game,game.name) for game in self.games_list])
+    def view_games(self, mode):
+        if mode == 'library':
+            title = "%s's Library (%d games)" % (self.username, len(self.games_list))
+        elif mode == 'achievements':
+            title = "%s's Achievements" % self.username
+        else:
+            error_app(ERROR_INVALID_GAMES_LIST_MODE)
+        game_list_dialog = radiolist_dialog(title=title, values=[(game,game.name) for game in self.games_list])
         while True:
             game_selection = game_list_dialog.run()
             if game_selection is None:
                 break
-            game_selection.view_app()
+            if mode == 'library':
+                game_selection.view_details()
+            elif mode == 'achievements':
+                game_selection.view_achievements()
         return self.view_main
+    def view_library(self):
+        return self.view_games('library')
+    def view_achievements(self):
+        return self.view_games('achievements')
 
 # main content
 if __name__ == "__main__":
