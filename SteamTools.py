@@ -46,6 +46,7 @@ ERROR_PROFILE_NOT_FOUND = "Profile not found"
 ERROR_INVALID_GAME = "Invalid game"
 ERROR_INVALID_GAMES_LIST_MODE = "Invalid games list mode"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
+ERROR_FILE_EXISTS = "File exists"
 
 # message
 def message(s='', end='\n'):
@@ -126,7 +127,9 @@ class SharedFile:
         return "%s%d" % (STEAM_SHARED_FILES_BASE_URL, self.ID)
 
     # load data
-    def load_data(self):
+    def load_data(self, overwrite=False):
+        if self.data is not None and not overwrite:
+            return
         self.data = dict(); url = self.get_url_details()
         html_lines = urlopen(url).read().decode().splitlines()
         details_stats_names = list(); details_stats_vals = list()
@@ -150,14 +153,20 @@ class SharedFile:
 
     # view file details
     def view_details(self):
-        if self.data is None:
-            self.load_data()
+        self.load_data()
         text = "<ansired>- URL (Details):</ansired> %s" % self.get_url_details()
         text += "\n<ansired>- URL (Image):</ansired> %s" % self.data['image_url']
         text += "\n<ansired>- Posted: %s" % self.data['Posted']
         text += "\n<anisred>- Resolution: %s" % self.data['Size']
         text += "\n<ansired>- File Size: %s" % self.data['File Size']
         message_dialog(title=HTML("<ansiblue>%s</ansiblue>" % self.ID), text=HTML(text)).run()
+
+    # download file
+    def download(self, destination_path, overwrite=False):
+        if isfile(destination_path) and not overwrite:
+            error_app("%s: %s" % (ERROR_FILE_EXISTS, destination_path))
+        load_data(); data = urlopen(self.data['image_url']).read()
+        f = open(destination_path, 'wb'); f.write(data); f.close()
 
     # str function
     def __str__(self):
@@ -290,12 +299,14 @@ class Game:
     def view_screenshots(self, username=None):
         if self.screenshots is None:
             self.load_screenshots(username)
-        values = [(screenshot, str(screenshot) for screenshot in self.screenshots]
+        values = [('download_all',"Download All")] + [(screenshot, str(screenshot) for screenshot in self.screenshots]
         screenshot_list_dialog = radiolist_dialog(title=HTML("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots))), values=values)
         while True:
             screenshot_selection = screenshot_list_dialog.run()
             if screenshot_selection is None:
                 break
+            elif screenshot_selection is 'download_all':
+                exit(1) # TODO
             screenshot_selection.view_details()
 
     # str function
