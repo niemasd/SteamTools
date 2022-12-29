@@ -203,7 +203,9 @@ class Game:
         self.screenshots = None
 
     # load game details
-    def load_details(self):
+    def load_details(self, overwrite=False):
+        if self.details is not None and not overwrite:
+            return
         try:
             self.details = jloads(urlopen("%s%s" % (STEAM_APP_DETAILS_BASE_URL, self.appID)).read().decode())[self.appID]['data']
         except:
@@ -212,7 +214,9 @@ class Game:
             self.details['supported_languages'] = self.details['supported_languages'].replace('<strong>','').replace('</strong>','').replace('<br>',', ').split(', ')
 
     # load game achievements
-    def load_achievements(self, username):
+    def load_achievements(self, username, overwrite=False):
+        if self.achievements is not None and not overwrite:
+            return
         url = "%s/%s/stats/%s" % (STEAM_COMMUNITY_BASE_URL, username, self.appID)
         xml = ElementTree.parse(urlopen(url + STEAM_URL_SUFFIX_XML))
         xml_stats = None; xml_achievements = None
@@ -227,7 +231,9 @@ class Game:
         self.achievements = [Achievement(curr) for curr in xml_achievements]
 
     # load game screenshots
-    def load_screenshots(self, username):
+    def load_screenshots(self, username, overwrite=False):
+        if self.screenshots is not None and not overwrite:
+            return
         message("%s: %s" % (TEXT_LOADING_SCREENSHOTS, self.name))
         base_url = "%s/%s/screenshots?appid=%s" % (STEAM_COMMUNITY_BASE_URL, username, self.appID)
         base_url += "&sort=oldestfirst"
@@ -251,8 +257,7 @@ class Game:
 
     # view game details
     def view_details(self):
-        if self.details is None:
-            self.load_details()
+        self.load_details()
         text = '<ansired>- App ID:</ansired> %s' % self.appID
         if 'release_date' in self.details and 'date' in self.details['release_date']:
             text += '\n<ansired>- Release Date:</ansired> %s' % self.details['release_date']['date']
@@ -280,8 +285,7 @@ class Game:
 
     # view game achievements
     def view_achievements(self, username=None):
-        if self.achievements is None:
-            self.load_achievements(username)
+        self.load_achievements(username)
         locked = list(); unlocked = list()
         for achievement in self.achievements:
             if achievement.unlock_time is None:
@@ -297,8 +301,7 @@ class Game:
 
     # view game screenshots
     def view_screenshots(self, username=None):
-        if self.screenshots is None:
-            self.load_screenshots(username)
+        self.load_screenshots(username)
         values = [('download_all',"Download All")] + [(screenshot, str(screenshot) for screenshot in self.screenshots]
         screenshot_list_dialog = radiolist_dialog(title=HTML("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots))), values=values)
         while True:
