@@ -9,7 +9,10 @@ def error(s):
 
 # imports
 from datetime import datetime
+from glob import glob
 from json import loads as jloads
+from os import makedirs
+from os.path import abspath, expanduser, isfile, isdir
 from sys import argv, stderr, stdout
 from time import sleep
 from urllib.request import urlopen
@@ -37,6 +40,7 @@ STEAM_URL_SUFFIX_XML = "?xml=1"
 # messages
 TEXT_LOADING_USER_DATA = "Loading user data"
 TEXT_USER_PROMPT = "Please enter your Steam username:"
+TEXT_NEW_DIR_PROMPT = "Enter new directory name:"
 TEXT_WELCOME = "Welcome to SteamTools! This simple tool aims to provide a user-friendly command-line interface for exploring a public Steam account.\n\nMade by Niema Moshiri (niemasd), 2021"
 TEXT_LOADING_SCREENSHOTS = "Loading screenshots from"
 TEXT_LOADING_PAGE = "Loading page"
@@ -47,6 +51,7 @@ ERROR_INVALID_GAME = "Invalid game"
 ERROR_INVALID_GAMES_LIST_MODE = "Invalid games list mode"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
 ERROR_FILE_EXISTS = "File exists"
+ERROR_PATH_EXISTS = "Path exists"
 
 # message
 def message(s='', end='\n'):
@@ -67,6 +72,39 @@ def error_app(s, crash=True):
     message_dialog(title=ERROR_TITLE, text=HTML(break_string("<ansired>ERROR:</ansired> %s" % s))).run()
     if crash:
         exit(1)
+
+# select path app
+def select_path_app(files=True, folders=True):
+    curr_path = abspath(expanduser(getcwd()))
+    while True:
+        files = sorted(glob('%s/*' % curr_path))
+        values = [('.',"- Select This Path -")]
+        values += [('', "- Create New Directory Here -")]
+        if curr_path != '/':
+            values += [('..','..')]
+        if folders:
+            values += [(fn, fn.split('/')[-1] + '/') for fn in files if isdir(fn)]
+        if files:
+            values += [(fn, fn.split('/')[-1]) for fn in files if isfile(fn)]
+        selection = radiolist_dialog(title=HTML("<ansiblue>Select Directory</ansiblue>" % curr_path), text="Current: %s" % curr_path, values=values).run()
+        if selection is None:
+            return None
+        elif selection == '.':
+            return curr_path
+        elif selection == '..':
+            curr_path = '/'.join(curr_path.split('/')[:-1])
+        elif selection == '':
+            while True:
+                new_dir_name = input_dialog(title=HTML("<ansiblue>New Directory</ansiblue>"), text=TEXT_NEW_DIR_PROMPT).run()
+                if new_dir_name is None:
+                    break
+                new_dir_path = "%s/%s" % (curr_path, new_dir_name)
+                if isfile(new_dir_path) or isdir(new_dir_path):
+                    error_app("%s: %s" % (ERROR_PATH_EXISTS, new_dir_path), crash=False)
+                else:
+                    makedirs(new_dir_path); curr_path = new_dir_path
+        else:
+            curr_path = selection
 
 # break a long string into multiple lines
 def break_string(s, max_width=LINE_WIDTH):
@@ -164,7 +202,7 @@ class SharedFile:
     # download file
     def download(self, destination_path, overwrite=False):
         if isfile(destination_path) and not overwrite:
-            error_app("%s: %s" % (ERROR_FILE_EXISTS, destination_path))
+            error_app("%s: %s" % (ERROR_FILE_EXISTS, destination_path), crash=False)
         load_data(); data = urlopen(self.data['image_url']).read()
         f = open(destination_path, 'wb'); f.write(data); f.close()
 
@@ -309,8 +347,17 @@ class Game:
             if screenshot_selection is None:
                 break
             elif screenshot_selection is 'download_all':
-                exit(1) # TODO
-            screenshot_selection.view_details()
+                self.download_all_screenshots()
+            else:
+                screenshot_selection.view_details()
+
+    # download all screenshots
+    def download_all_screenshots(self):
+        destination = select_path_app(files=False)
+        if destination is None:
+            return
+        for screenshot in self.screenshots:
+            screenshot.download("%s/%s.jpg" % (destination, screenshot.ID))
 
     # str function
     def __str__(self):
