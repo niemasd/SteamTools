@@ -11,6 +11,7 @@ def error(s):
 from datetime import datetime
 from json import loads as jloads
 from sys import argv, stderr, stdout
+from time import sleep
 from urllib.request import urlopen
 from xml.etree import ElementTree
 try:
@@ -24,16 +25,21 @@ VERSION = '0.0.1'
 WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
+NUM_SHARED_FILE_ATTEMPTS = 100
+REATTEMPT_DELAY = 1
 
 # URL stuff
 STEAM_COMMUNITY_BASE_URL = "https://steamcommunity.com/id"
 STEAM_APP_DETAILS_BASE_URL = "https://store.steampowered.com/api/appdetails?appids="
+STEAM_SHARED_FILES_BASE_URL = "https://steamcommunity.com/sharedfiles/filedetails?id="
 STEAM_URL_SUFFIX_XML = "?xml=1"
 
 # messages
 TEXT_LOADING_USER_DATA = "Loading user data"
 TEXT_USER_PROMPT = "Please enter your Steam username:"
 TEXT_WELCOME = "Welcome to SteamTools! This simple tool aims to provide a user-friendly command-line interface for exploring a public Steam account.\n\nMade by Niema Moshiri (niemasd), 2021"
+TEXT_LOADING_SCREENSHOTS = "Loading screenshots from"
+TEXT_LOADING_PAGE = "Loading page"
 ERROR_IMPORT_PROMPT_TOOLKIT = "Unable to import 'prompt_toolkit'. Install via: 'pip install prompt_toolkit'"
 ERROR_INVALID_USERNAME = "Please enter a valid Steam username"
 ERROR_PROFILE_NOT_FOUND = "Profile not found"
@@ -108,6 +114,70 @@ class Achievement:
     def __str__(self):
         return str(self.__dict__)
 
+# helper class to represent individual Steam Shared File
+class SharedFile:
+    # constructor
+    def __init__(self, ID):
+        self.ID = ID
+        self.data = None
+
+    # get file details URL
+    def get_url_details(self):
+        return "%s%d" % (STEAM_SHARED_FILES_BASE_URL, self.ID)
+
+    # load data
+    def load_data(self):
+        self.data = dict(); url = self.get_url_details()
+        html_lines = urlopen(url).read().decode().splitlines()
+        details_stats_names = list(); details_stats_vals = list()
+        for i, l in enumerate(html_lines):
+            if 'letterbox=false' in l:
+                assert 'image_url' not in self.data, "Duplace image: %s" % url
+                self.data['image_url'] = l.split('href="')[1].split('"')[0].strip()
+            elif 'detailsStatsContainerLeft' in l:
+                for j, jl in enumerate(html_lines[i+1:]):
+                    if jl.strip() == "</div>":
+                        break
+                    details_stats_names.append(jl.split('<div class="detailsStatLeft">')[1].split('</div>')[0].strip())
+            elif 'detailsStatsContainerRight' in l:
+                for j, jl in enumerate(html_lines[i+1:]):
+                    if jl.strip() == "</div>":
+                        break
+                    details_stats_vals.append(jl.split('<div class="detailsStatRight">')[1].split('</div>')[0].strip())
+        assert len(details_stats_names) == len(details_stats_vals), "Failed to parse detail stats: %s" % url
+        for i in range(len(details_stats_names)):
+            self.data[details_stats_names[i]] = details_stats_vals[i]
+
+    # view file details
+    def view_details(self):
+        if self.data is None:
+            self.load_data()
+        text = "<ansired>- URL (Details):</ansired> %s" % self.get_url_details()
+        text += "\n<ansired>- URL (Image):</ansired> %s" % self.data['image_url']
+        text += "\n<ansired>- Posted: %s" % self.data['Posted']
+        text += "\n<anisred>- Resolution: %s" % self.data['Size']
+        text += "\n<ansired>- File Size: %s" % self.data['File Size']
+        message_dialog(title=HTML("<ansiblue>%s</ansiblue>" % self.ID), text=HTML(text)).run()
+
+    # str function
+    def __str__(self):
+        if self.data is None:
+            return str((self.ID,))
+        else:
+            return str((self.ID, self.data['Posted'], self.data['Size'], self.data['File Size']))
+
+    # comparison functions
+    def __lt__(self, o):
+        return self.ID < o.ID
+    def __le__(self, o):
+        return self.ID <= o.ID
+    def __gt__(self, o):
+        return self.ID > o.ID
+    def __ge__(self, o):
+        return self.ID >= o.ID
+    def __eq__(self, o):
+        return self.ID == o.ID
+
 # helper class to represent individual games
 class Game:
     # constructor
@@ -121,6 +191,7 @@ class Game:
         self.appID = data['appID']
         self.details = None
         self.achievements = None
+        self.screenshots = None
 
     # load game details
     def load_details(self):
@@ -146,6 +217,28 @@ class Game:
                 pass
         self.achievements = [Achievement(curr) for curr in xml_achievements]
 
+    # load game screenshots
+    def load_screenshots(self, username):
+        message("%s: %s" % (TEXT_LOADING_SCREENSHOTS, self.name))
+        base_url = "%s/%s/screenshots?appid=%s" % (STEAM_COMMUNITY_BASE_URL, username, self.appID)
+        base_url += "&sort=oldestfirst"
+        base_url += "&browsefilter=myfiles"
+        base_url += "&view=grid"
+        base_url += "&p=" # will populate with page number in loop below
+        self.screenshots = list()
+        curr_page_num = 1; total_num_screenshots = None
+        while total_num_screenshots is None or len(self.screenshots) < total_num_screenshots:
+            message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num))
+            url = "%s%d" % (base_url, curr_page_num); html_lines = urlopen(url).read().decode().splitlines()
+            curr_page_screenshots = list()
+            for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
+                curr_page_screenshots = [SharedFile(int(l.split('"')[1])) for l in html_lines if 'data-publishedfileid=' in l]
+                if len(curr_page_screenshots) != 0:
+                    break # successful download
+                sleep(REATTEMPT_DELAY)
+            self.screenshots += curr_page_screenshots; curr_page_num += 1
+            if total_num_screenshots is None:
+                total_num_screenshots = int([l for l in html_lines if 'Showing ' in l][0].split(' of ')[1].split('<')[0])
 
     # view game details
     def view_details(self):
@@ -193,6 +286,18 @@ class Game:
                 break
             achievement_selection.view_details()
 
+    # view game screenshots
+    def view_screenshots(self, username=None):
+        if self.screenshots is None:
+            self.load_screenshots(username)
+        values = [(screenshot, str(screenshot) for screenshot in self.screenshots]
+        screenshot_list_dialog = radiolist_dialog(title=HTML("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots))), values=values)
+        while True:
+            screenshot_selection = screenshot_list_dialog.run()
+            if screenshot_selection is None:
+                break
+            screenshot_selection.view_details()
+
     # str function
     def __str__(self):
         return str(self.__dict__)
@@ -217,6 +322,7 @@ class User:
         message(s="%s: %s" % (TEXT_LOADING_USER_DATA, username))
         url_community = "%s/%s" % (STEAM_COMMUNITY_BASE_URL, username)
         url_games = "%s/games" % url_community
+        url_screenshots = "%s/screenshots" % url_community
 
         # load user data
         xml = ElementTree.parse(urlopen(url_community + STEAM_URL_SUFFIX_XML))
@@ -254,6 +360,9 @@ class User:
         self.games_list = sorted(Game(xml_game) for xml_game in xml_games)
         self.games_map = {game.appID:game for game in self.games_list}
 
+        # load games with screenshots
+        self.games_with_screenshots = {l.split("'appid': '")[1].split("'")[0] for l in urlopen(url_screenshots).read().decode().splitlines() if 'javascript:SelectSharedFilesContentFilter' in l and 'appid' in l}
+
     # comparison functions
     def __lt__(self, o):
         return self.username.lower() < o.username.lower()
@@ -282,19 +391,25 @@ class User:
             message_dialog(title=title, text=text).run()
         else:
             return radiolist_dialog(title=title, text=text, values=[
-                (self.view_library, HTML("<ansiblue>View Library</ansiblue> (%d games)" % len(self.games_list))),
-                (self.view_achievements, HTML("<ansiblue>View Achievements</ansiblue>")),
+                (self.view_library, HTML("<ansiblue>Library</ansiblue> (%d games)" % len(self.games_list))),
+                (self.view_achievements, HTML("<ansiblue>Achievements</ansiblue>")),
+                (self.view_screenshots, HTML("<ansiblue>Screenshots</ansiblue> (%d games)" % len(self.games_with_screenshots))),
             ]).run()
 
     # view games
     def view_games(self, mode):
         if mode == 'library':
             title = HTML("<ansiblue>%s's Library</ansiblue> <ansiblack>(%d games)</ansiblack>" % (self.username, len(self.games_list)))
+            values = [(game,game.name) for game in self.games_list]
         elif mode == 'achievements':
             title = HTML("<ansiblue>%s's Achievements</ansiblue>" % self.username)
+            values = [(game,game.name) for game in self.games_list]
+        elif mode == 'screenshots':
+            title = HTML("<ansiblue>%s's Screenshots</ansiblue> <ansiblack>(%d games)</ansiblack>" % (self.username, len(self.games_with_screenshots)))
+            values = [(game,game.name) for game in self.games_list if game.appID in self.games_with_screenshots]
         else:
             error_app(ERROR_INVALID_GAMES_LIST_MODE)
-        game_list_dialog = radiolist_dialog(title=title, values=[(game,game.name) for game in self.games_list])
+        game_list_dialog = radiolist_dialog(title=title, values=values)
         while True:
             game_selection = game_list_dialog.run()
             if game_selection is None:
@@ -303,11 +418,15 @@ class User:
                 game_selection.view_details()
             elif mode == 'achievements':
                 game_selection.view_achievements(self.username)
+            elif mode == 'screenshots':
+                game_selection.view_screenshots(self.username)
         return self.view_main
     def view_library(self):
         return self.view_games('library')
     def view_achievements(self):
         return self.view_games('achievements')
+    def view_screenshots(self):
+        return self.view_games('screenshots')
 
 # main content
 if __name__ == "__main__":
