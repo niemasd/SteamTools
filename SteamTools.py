@@ -8,14 +8,14 @@ def error(s):
     print(s, file=stderr); exit(1)
 
 # imports
-from datetime import datetime
+from datetime import date, datetime
 from glob import glob
 from json import loads as jloads
 from os import getcwd, makedirs
 from os.path import abspath, expanduser, isfile, isdir
 from sys import argv, stderr, stdout
 from time import sleep
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 try:
     from prompt_toolkit.formatted_text import HTML
@@ -32,8 +32,9 @@ VERSION = '0.0.1'
 WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
-NUM_SHARED_FILE_ATTEMPTS = 1000
-REATTEMPT_DELAY = 0.1
+NUM_SHARED_FILE_ATTEMPTS = 100
+REATTEMPT_DELAY = 0.5
+URLLIB_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36'}
 
 # URL stuff
 STEAM_COMMUNITY_BASE_URL = "https://steamcommunity.com/id"
@@ -178,7 +179,7 @@ class SharedFile:
         if self.data is not None and not overwrite:
             return
         self.data = dict(); url = self.get_url_details()
-        html_lines = urlopen(url).read().decode().splitlines()
+        html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
         details_stats_names = list(); details_stats_vals = list()
         for i, l in enumerate(html_lines):
             if 'letterbox=false' in l:
@@ -204,7 +205,10 @@ class SharedFile:
         for i in range(len(details_stats_names)):
             self.data[details_stats_names[i]] = details_stats_vals[i]
         if 'Posted' in self.data:
-            self.data['Posted'] = datetime.strptime(self.data['Posted'], '%b %d, %Y @ %I:%M%p')
+            if ',' in self.data['Posted']: # has year
+                self.data['Posted'] = datetime.strptime(self.data['Posted'], '%b %d, %Y @ %I:%M%p')
+            else: # doesn't have year (meaning it's from this year)
+                self.data['Posted'] = datetime.strptime(self.data['Posted'], '%b %d @ %I:%M%p').replace(year=date.today().year)
 
     # view file details
     def view_details(self):
@@ -218,9 +222,10 @@ class SharedFile:
     # download file
     def download(self, destination_path, overwrite=False):
         if isfile(destination_path) and not overwrite:
-            error_app("%s: %s" % (ERROR_FILE_EXISTS, destination_path), crash=False)
-        self.load_data(); data = urlopen(self.data['image_url']).read()
-        f = open(destination_path, 'wb'); f.write(data); f.close()
+            error("%s: %s" % (ERROR_FILE_EXISTS, destination_path), crash=False)
+        else:
+            self.load_data(); data = urlopen(Request(self.data['image_url'],headers=URLLIB_HEADERS)).read()
+            f = open(destination_path, 'wb'); f.write(data); f.close()
 
     # str function
     def __str__(self):
@@ -261,7 +266,7 @@ class Game:
         if self.details is not None and not overwrite:
             return
         try:
-            self.details = jloads(urlopen("%s%s" % (STEAM_APP_DETAILS_BASE_URL, self.appID)).read().decode())[self.appID]['data']
+            self.details = jloads(urlopen(Request("%s%s" % (STEAM_APP_DETAILS_BASE_URL, self.appID),headers=URLLIB_HEADERS)).read().decode())[self.appID]['data']
         except:
             self.details = dict()
         if 'supported_languages' in self.details:
@@ -272,7 +277,7 @@ class Game:
         if self.achievements is not None and not overwrite:
             return
         url = "%s/%s/stats/%s" % (STEAM_COMMUNITY_BASE_URL, username, self.appID)
-        xml = ElementTree.parse(urlopen(url + STEAM_URL_SUFFIX_XML))
+        xml = ElementTree.parse(urlopen(Request(url + STEAM_URL_SUFFIX_XML,headers=URLLIB_HEADERS)))
         xml_stats = None; xml_achievements = None
         for curr in xml.getroot():
             try:
@@ -298,7 +303,7 @@ class Game:
         curr_page_num = 1; total_num_screenshots = None
         while total_num_screenshots is None or len(self.screenshots) < total_num_screenshots:
             message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num), end='\r')
-            url = "%s%d" % (base_url, curr_page_num); html_lines = urlopen(url).read().decode().splitlines()
+            url = "%s%d" % (base_url, curr_page_num); html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
             curr_page_screenshots = list()
             for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
                 curr_page_screenshots = [SharedFile(int(l.split('"')[1])) for l in html_lines if 'data-publishedfileid=' in l]
@@ -306,7 +311,7 @@ class Game:
                     break # successful download
                 sleep(REATTEMPT_DELAY)
             if len(curr_page_screenshots) == 0:
-                error_app("%s: %s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.name))
+                error_app("%s: %s\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.name, url))
             self.screenshots += curr_page_screenshots; curr_page_num += 1
             if total_num_screenshots is None:
                 total_num_screenshots = int([l for l in html_lines if 'Showing ' in l][0].split(' of ')[1].split('<')[0])
@@ -407,7 +412,7 @@ class User:
         url_screenshots = "%s/screenshots" % url_community
 
         # load user data
-        xml = ElementTree.parse(urlopen(url_community + STEAM_URL_SUFFIX_XML))
+        xml = ElementTree.parse(urlopen(Request(url_community + STEAM_URL_SUFFIX_XML,headers=URLLIB_HEADERS)))
         for curr in xml.getroot():
             try:
                 if curr.tag == 'steamID':
@@ -428,7 +433,7 @@ class User:
                 pass
 
         # load game data
-        xml = ElementTree.parse(urlopen(url_games + STEAM_URL_SUFFIX_XML)); xml_games = None
+        xml = ElementTree.parse(urlopen(Request(url_games + STEAM_URL_SUFFIX_XML,headers=URLLIB_HEADERS))); xml_games = None
         for curr in xml.getroot():
             if curr.tag == 'error':
                 error_app(curr.text.strip())
@@ -443,7 +448,7 @@ class User:
         self.games_map = {game.appID:game for game in self.games_list}
 
         # load games with screenshots
-        self.games_with_screenshots = {l.split("'appid': '")[1].split("'")[0] for l in urlopen(url_screenshots).read().decode().splitlines() if 'javascript:SelectSharedFilesContentFilter' in l and 'appid' in l}
+        self.games_with_screenshots = {l.split("'appid': '")[1].split("'")[0] for l in urlopen(Request(url_screenshots,headers=URLLIB_HEADERS)).read().decode().splitlines() if 'javascript:SelectSharedFilesContentFilter' in l and 'appid' in l}
 
     # comparison functions
     def __lt__(self, o):
