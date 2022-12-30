@@ -32,7 +32,7 @@ VERSION = '0.0.1'
 WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
-NUM_SHARED_FILE_ATTEMPTS = 100
+NUM_SHARED_FILE_ATTEMPTS = 10
 REATTEMPT_DELAY = 0.5
 URLLIB_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36'}
 
@@ -54,6 +54,7 @@ ERROR_INVALID_USERNAME = "Please enter a valid Steam username"
 ERROR_PROFILE_NOT_FOUND = "Profile not found"
 ERROR_INVALID_GAME = "Invalid game"
 ERROR_INVALID_GAMES_LIST_MODE = "Invalid games list mode"
+ERROR_LOAD_DATA_FAILED = "Failed to load data"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
 ERROR_LOAD_SCREENSHOTS_FAILED = "Failed to load screenshots"
 ERROR_FILE_EXISTS = "File exists"
@@ -76,7 +77,10 @@ def error(s, crash=True):
 
 # error message app
 def error_app(s, crash=True):
-    message_dialog(title=ERROR_TITLE, text=HTML(break_string("<ansired>ERROR:</ansired> %s" % s))).run()
+    try:
+        message_dialog(title=ERROR_TITLE, text=HTML(break_string("<ansired>ERROR:</ansired> %s" % s))).run()
+    except:
+        message_dialog(title=ERROR_TITLE, text=break_string("ERROR: %s" % s)).run()
     if crash:
         exit(1)
 
@@ -178,8 +182,14 @@ class SharedFile:
     def load_data(self, overwrite=False):
         if self.data is not None and not overwrite:
             return
-        self.data = dict(); url = self.get_url_details()
-        html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
+        self.data = dict(); url = self.get_url_details(); html_lines = None
+        for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
+            try:
+                html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines(); break
+            except:
+                sleep(REATTEMPT_DELAY)
+        if html_lines is None:
+            error_app(ERROR_LOAD_DATA_FAILED, crash=False); self.data = None; return
         details_stats_names = list(); details_stats_vals = list()
         for i, l in enumerate(html_lines):
             if 'letterbox=false' in l:
@@ -302,8 +312,9 @@ class Game:
         self.screenshots = list()
         curr_page_num = 1; total_num_screenshots = None
         while total_num_screenshots is None or len(self.screenshots) < total_num_screenshots:
+            url = "%s%d" % (base_url, curr_page_num)
             message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num), end='\r')
-            url = "%s%d" % (base_url, curr_page_num); html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
+            html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
             curr_page_screenshots = list()
             for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
                 curr_page_screenshots = [SharedFile(int(l.split('"')[1])) for l in html_lines if 'data-publishedfileid=' in l]
@@ -311,7 +322,8 @@ class Game:
                     break # successful download
                 sleep(REATTEMPT_DELAY)
             if len(curr_page_screenshots) == 0:
-                error_app("%s: %s\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.name, url))
+                error_app("%s: %s\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.name, url), crash=False)
+                self.screenshots = None; return
             self.screenshots += curr_page_screenshots; curr_page_num += 1
             if total_num_screenshots is None:
                 total_num_screenshots = int([l for l in html_lines if 'Showing ' in l][0].split(' of ')[1].split('<')[0])
@@ -363,6 +375,8 @@ class Game:
     # view game screenshots
     def view_screenshots(self, username=None):
         self.load_screenshots(username)
+        if self.screenshots is None:
+            return # loading screenshots failed
         values = [('download_all',HTML("<ansigreen>Download All</ansigreen>"))] + [(screenshot, str(screenshot.ID)) for screenshot in self.screenshots]
         screenshot_list_dialog = radiolist_dialog(title=HTML("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots))), values=values)
         while True:
