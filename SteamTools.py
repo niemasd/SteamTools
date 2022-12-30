@@ -199,6 +199,8 @@ class SharedFile:
         assert len(details_stats_names) == len(details_stats_vals), "Failed to parse detail stats: %s" % url
         for i in range(len(details_stats_names)):
             self.data[details_stats_names[i]] = details_stats_vals[i]
+        if 'Posted' in self.data:
+            self.data['Posted'] = datetime.strptime(self.data['Posted'], '%b %d, %Y @ %I:%M%p')
 
     # view file details
     def view_details(self):
@@ -370,7 +372,8 @@ class Game:
             return
         for i, screenshot in enumerate(self.screenshots):
             message("Downloading screenshot %d of %d" % (i+1, len(self.screenshots)), end='\r')
-            screenshot.download("%s/%s.jpg" % (destination, screenshot.ID))
+            screenshot.load_data()
+            screenshot.download("%s/%s_%s.jpg" % (destination, str(screenshot.data['Posted']).replace(':','-').replace(' ','_'), screenshot.ID))
 
     # str function
     def __str__(self):
