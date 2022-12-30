@@ -22,13 +22,17 @@ try:
     from prompt_toolkit.shortcuts import input_dialog, message_dialog, radiolist_dialog
 except:
     error("Unable to import 'prompt_toolkit'. Install via: 'pip install prompt_toolkit'")
+try:
+    from filedate import File
+except:
+    error("Unable to import 'filedate'. Install via: 'pip install filedate'")
 
 # useful constants
 VERSION = '0.0.1'
 WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
-NUM_SHARED_FILE_ATTEMPTS = 100
+NUM_SHARED_FILE_ATTEMPTS = 1000
 REATTEMPT_DELAY = 0.1
 
 # URL stuff
@@ -372,8 +376,9 @@ class Game:
             return
         for i, screenshot in enumerate(self.screenshots):
             message("Downloading screenshot %d of %d" % (i+1, len(self.screenshots)), end='\r')
-            screenshot.load_data()
-            screenshot.download("%s/%s_%s.jpg" % (destination, str(screenshot.data['Posted']).replace(':','-').replace(' ','_'), screenshot.ID))
+            screenshot.load_data(); posted_date = screenshot.data['Posted']
+            out_path = "%s/%s_%s.jpg" % (destination, str(posted_date).replace(':','-').replace(' ','_'), screenshot.ID)
+            screenshot.download(out_path); File(out_path).set(created=posted_date, modified=posted_date, accessed=posted_date)
 
     # str function
     def __str__(self):
