@@ -11,7 +11,7 @@ def error(s):
 from datetime import datetime
 from glob import glob
 from json import loads as jloads
-from os import makedirs
+from os import getcwd, makedirs
 from os.path import abspath, expanduser, isfile, isdir
 from sys import argv, stderr, stdout
 from time import sleep
@@ -29,7 +29,7 @@ WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
 NUM_SHARED_FILE_ATTEMPTS = 100
-REATTEMPT_DELAY = 1
+REATTEMPT_DELAY = 0.1
 
 # URL stuff
 STEAM_COMMUNITY_BASE_URL = "https://steamcommunity.com/id"
@@ -50,8 +50,10 @@ ERROR_PROFILE_NOT_FOUND = "Profile not found"
 ERROR_INVALID_GAME = "Invalid game"
 ERROR_INVALID_GAMES_LIST_MODE = "Invalid games list mode"
 ERROR_LOAD_GAMES_FAILED = "Failed to load game library"
+ERROR_LOAD_SCREENSHOTS_FAILED = "Failed to load screenshots"
 ERROR_FILE_EXISTS = "File exists"
 ERROR_PATH_EXISTS = "Path exists"
+ERROR_EMPTY_NAME = "Empty name"
 
 # message
 def message(s='', end='\n'):
@@ -77,16 +79,16 @@ def error_app(s, crash=True):
 def select_path_app(files=True, folders=True):
     curr_path = abspath(expanduser(getcwd()))
     while True:
-        files = sorted(glob('%s/*' % curr_path))
-        values = [('.',"- Select This Path -")]
-        values += [('', "- Create New Directory Here -")]
-        if curr_path != '/':
+        contents = sorted(glob('%s/*' % curr_path))
+        values = [('.',HTML("<ansigreen>--- Select This Path ---</ansigreen>"))]
+        values += [('', HTML("<ansiblue>- Create New Directory Here -</ansiblue>"))]
+        if curr_path != '':
             values += [('..','..')]
         if folders:
-            values += [(fn, fn.split('/')[-1] + '/') for fn in files if isdir(fn)]
+            values += [(fn, fn.split('/')[-1] + '/') for fn in contents if isdir(fn)]
         if files:
-            values += [(fn, fn.split('/')[-1]) for fn in files if isfile(fn)]
-        selection = radiolist_dialog(title=HTML("<ansiblue>Select Directory</ansiblue>" % curr_path), text="Current: %s" % curr_path, values=values).run()
+            values += [(fn, fn.split('/')[-1]) for fn in contents if isfile(fn)]
+        selection = radiolist_dialog(title=HTML("<ansiblue>Select Directory</ansiblue>"), text="Current: %s/" % curr_path, values=values).run()
         if selection is None:
             return None
         elif selection == '.':
@@ -98,11 +100,14 @@ def select_path_app(files=True, folders=True):
                 new_dir_name = input_dialog(title=HTML("<ansiblue>New Directory</ansiblue>"), text=TEXT_NEW_DIR_PROMPT).run()
                 if new_dir_name is None:
                     break
-                new_dir_path = "%s/%s" % (curr_path, new_dir_name)
-                if isfile(new_dir_path) or isdir(new_dir_path):
-                    error_app("%s: %s" % (ERROR_PATH_EXISTS, new_dir_path), crash=False)
+                elif new_dir_name == '':
+                    error_app(ERROR_EMPTY_NAME, crash=False)
                 else:
-                    makedirs(new_dir_path); curr_path = new_dir_path
+                    new_dir_path = "%s/%s" % (curr_path, new_dir_name)
+                    if isfile(new_dir_path) or isdir(new_dir_path):
+                        error_app("%s: %s" % (ERROR_PATH_EXISTS, new_dir_path), crash=False)
+                    else:
+                        makedirs(new_dir_path); curr_path = new_dir_path; break
         else:
             curr_path = selection
 
@@ -177,12 +182,18 @@ class SharedFile:
                 self.data['image_url'] = l.split('href="')[1].split('"')[0].strip()
             elif 'detailsStatsContainerLeft' in l:
                 for j, jl in enumerate(html_lines[i+1:]):
-                    if jl.strip() == "</div>":
+                    jls = jl.strip()
+                    if jls == '':
+                        continue
+                    elif jls == "</div>":
                         break
                     details_stats_names.append(jl.split('<div class="detailsStatLeft">')[1].split('</div>')[0].strip())
             elif 'detailsStatsContainerRight' in l:
                 for j, jl in enumerate(html_lines[i+1:]):
-                    if jl.strip() == "</div>":
+                    jls = jl.strip()
+                    if jls == '':
+                        continue
+                    elif jl.strip() == "</div>":
                         break
                     details_stats_vals.append(jl.split('<div class="detailsStatRight">')[1].split('</div>')[0].strip())
         assert len(details_stats_names) == len(details_stats_vals), "Failed to parse detail stats: %s" % url
@@ -193,23 +204,22 @@ class SharedFile:
     def view_details(self):
         self.load_data()
         text = "<ansired>- URL (Details):</ansired> %s" % self.get_url_details()
-        text += "\n<ansired>- URL (Image):</ansired> %s" % self.data['image_url']
-        text += "\n<ansired>- Posted: %s" % self.data['Posted']
-        text += "\n<anisred>- Resolution: %s" % self.data['Size']
-        text += "\n<ansired>- File Size: %s" % self.data['File Size']
+        text += "\n<ansired>- Posted:</ansired> %s" % self.data['Posted']
+        text += "\n<ansired>- Resolution:</ansired> %s" % self.data['Size']
+        text += "\n<ansired>- File Size:</ansired> %s" % self.data['File Size']
         message_dialog(title=HTML("<ansiblue>%s</ansiblue>" % self.ID), text=HTML(text)).run()
 
     # download file
     def download(self, destination_path, overwrite=False):
         if isfile(destination_path) and not overwrite:
             error_app("%s: %s" % (ERROR_FILE_EXISTS, destination_path), crash=False)
-        load_data(); data = urlopen(self.data['image_url']).read()
+        self.load_data(); data = urlopen(self.data['image_url']).read()
         f = open(destination_path, 'wb'); f.write(data); f.close()
 
     # str function
     def __str__(self):
         if self.data is None:
-            return str((self.ID,))
+            return str(self.ID)
         else:
             return str((self.ID, self.data['Posted'], self.data['Size'], self.data['File Size']))
 
@@ -223,7 +233,7 @@ class SharedFile:
     def __ge__(self, o):
         return self.ID >= o.ID
     def __eq__(self, o):
-        return self.ID == o.ID
+        return type(self) == type(o) and self.ID == o.ID
 
 # helper class to represent individual games
 class Game:
@@ -281,7 +291,7 @@ class Game:
         self.screenshots = list()
         curr_page_num = 1; total_num_screenshots = None
         while total_num_screenshots is None or len(self.screenshots) < total_num_screenshots:
-            message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num))
+            message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num), end='\r')
             url = "%s%d" % (base_url, curr_page_num); html_lines = urlopen(url).read().decode().splitlines()
             curr_page_screenshots = list()
             for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
@@ -289,6 +299,8 @@ class Game:
                 if len(curr_page_screenshots) != 0:
                     break # successful download
                 sleep(REATTEMPT_DELAY)
+            if len(curr_page_screenshots) == 0:
+                error_app("%s: %s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.name))
             self.screenshots += curr_page_screenshots; curr_page_num += 1
             if total_num_screenshots is None:
                 total_num_screenshots = int([l for l in html_lines if 'Showing ' in l][0].split(' of ')[1].split('<')[0])
@@ -340,13 +352,13 @@ class Game:
     # view game screenshots
     def view_screenshots(self, username=None):
         self.load_screenshots(username)
-        values = [('download_all',"Download All")] + [(screenshot, str(screenshot) for screenshot in self.screenshots]
+        values = [('download_all',HTML("<ansigreen>Download All</ansigreen>"))] + [(screenshot, str(screenshot.ID)) for screenshot in self.screenshots]
         screenshot_list_dialog = radiolist_dialog(title=HTML("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots))), values=values)
         while True:
             screenshot_selection = screenshot_list_dialog.run()
             if screenshot_selection is None:
                 break
-            elif screenshot_selection is 'download_all':
+            elif screenshot_selection == 'download_all':
                 self.download_all_screenshots()
             else:
                 screenshot_selection.view_details()
@@ -356,7 +368,8 @@ class Game:
         destination = select_path_app(files=False)
         if destination is None:
             return
-        for screenshot in self.screenshots:
+        for i, screenshot in enumerate(self.screenshots):
+            message("Downloading screenshot %d of %d" % (i+1, len(self.screenshots)), end='\r')
             screenshot.download("%s/%s.jpg" % (destination, screenshot.ID))
 
     # str function
@@ -373,7 +386,7 @@ class Game:
     def __ge__(self, o):
         return self.name.lower() >= o.name.lower()
     def __eq__(self, o):
-        return self.appID == o.appID
+        return type(self) == type(o) and self.appID == o.appID
 
 # helper class to represent a user
 class User:
