@@ -28,7 +28,7 @@ except:
     error("Unable to import 'filedate'. Install via: 'pip install filedate'")
 
 # useful constants
-VERSION = '0.0.1'
+VERSION = '0.0.2'
 WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
@@ -234,7 +234,14 @@ class SharedFile:
         if isfile(destination_path) and not overwrite:
             error("%s: %s" % (ERROR_FILE_EXISTS, destination_path), crash=False)
         else:
-            self.load_data(); data = urlopen(Request(self.data['image_url'],headers=URLLIB_HEADERS)).read()
+            self.load_data(); data = None
+            for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
+                try:
+                    data = urlopen(Request(self.data['image_url'],headers=URLLIB_HEADERS)).read(); break
+                except:
+                    sleep(REATTEMPT_DELAY)
+            if data is None:
+                error_app(ERROR_LOAD_DATA_FAILED)
             f = open(destination_path, 'wb'); f.write(data); f.close()
 
     # str function
@@ -317,7 +324,7 @@ class Game:
             html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
             curr_page_screenshots = list()
             for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
-                curr_page_screenshots = [SharedFile(int(l.split('"')[1])) for l in html_lines if 'data-publishedfileid=' in l]
+                curr_page_screenshots = [SharedFile(int(l.split('?id=')[1].split('"')[0])) for l in html_lines if 'filedetails' in l and '?id=' in l]
                 if len(curr_page_screenshots) != 0:
                     break # successful download
                 sleep(REATTEMPT_DELAY)
