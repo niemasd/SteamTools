@@ -61,6 +61,12 @@ ERROR_FILE_EXISTS = "File exists"
 ERROR_PATH_EXISTS = "Path exists"
 ERROR_EMPTY_NAME = "Empty name"
 
+# clean an HTML string
+def clean_html(s):
+    s = s.strip()
+    s = s.replace('&', '&amp;')
+    return s
+
 # message
 def message(s='', end='\n'):
     print(s, end=end); stdout.flush()
@@ -385,7 +391,8 @@ class Game:
         if self.screenshots is None:
             return # loading screenshots failed
         values = [('download_all',HTML("<ansigreen>Download All</ansigreen>"))] + [(screenshot, str(screenshot.ID)) for screenshot in self.screenshots]
-        screenshot_list_dialog = radiolist_dialog(title=HTML("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots))), values=values)
+        title_str = clean_html("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots)))
+        screenshot_list_dialog = radiolist_dialog(title=HTML(title_str), values=values)
         while True:
             screenshot_selection = screenshot_list_dialog.run()
             if screenshot_selection is None:
