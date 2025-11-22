@@ -28,7 +28,7 @@ except:
     error("Unable to import 'filedate'. Install via: 'pip install filedate'")
 
 # useful constants
-VERSION = '0.0.2'
+VERSION = '0.0.3'
 WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
@@ -40,7 +40,6 @@ URLLIB_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) 
 STEAM_COMMUNITY_BASE_URL = "https://steamcommunity.com/id"
 STEAM_APP_DETAILS_BASE_URL = "https://store.steampowered.com/api/appdetails?appids="
 STEAM_SHARED_FILES_BASE_URL = "https://steamcommunity.com/sharedfiles/filedetails?id="
-STEAM_URL_SUFFIX_XML = "?xml=1"
 
 # messages
 TEXT_LOADING_USER_DATA = "Loading user data"
@@ -84,9 +83,9 @@ def error(s, crash=True):
 # error message app
 def error_app(s, crash=True):
     try:
-        message_dialog(title=ERROR_TITLE, text=HTML(break_string("<ansired>ERROR:</ansired> %s" % s))).run()
+        message_dialog(title=ERROR_TITLE, text=HTML("<ansired>ERROR:</ansired> %s" % s)).run()
     except:
-        message_dialog(title=ERROR_TITLE, text=break_string("ERROR: %s" % s)).run()
+        message_dialog(title=ERROR_TITLE, text=("ERROR: %s" % s)).run()
     if crash:
         exit(1)
 
@@ -140,38 +139,6 @@ APPS = {
     'welcome': message_dialog(title=WINDOW_TITLE, text=TEXT_WELCOME),
     'user_prompt': input_dialog(title=WINDOW_TITLE, text=TEXT_USER_PROMPT)
 }
-
-# helper class to represent individual achievements
-class Achievement:
-    # constructor
-    def __init__(self, achievement):
-        self.unlock_time = None # None = still locked
-        for curr in achievement:
-            if curr.tag == 'iconClosed':
-                self.url_icon_unlocked = curr.text.strip()
-            elif curr.tag == 'iconOpen':
-                self.url_icon_locked = curr.text.strip()
-            elif curr.tag == 'name':
-                self.name = curr.text.strip()
-            elif curr.tag == 'apiname':
-                self.name_api = curr.text.strip()
-            elif curr.tag == 'description':
-                self.description = curr.text.strip()
-            elif curr.tag == 'unlockTimestamp':
-                self.unlock_time = datetime.utcfromtimestamp(int(curr.text))
-
-    # view achievement details
-    def view_details(self):
-        if self.unlock_time is None:
-            text = '<ansired>Locked</ansired>'
-        else:
-            text = '<ansigreen>Unlocked %s GMT</ansigreen>' % self.unlock_time
-        text += '\n\n%s' % break_string(self.description)
-        message_dialog(title=HTML("<ansiblue>%s</ansiblue>" % self.name), text=HTML(text)).run()
-
-    # str function
-    def __str__(self):
-        return str(self.__dict__)
 
 # helper class to represent individual Steam Shared File
 class SharedFile:
@@ -269,170 +236,14 @@ class SharedFile:
     def __eq__(self, o):
         return type(self) == type(o) and self.ID == o.ID
 
-# helper class to represent individual games
-class Game:
-    # constructor
-    def __init__(self, game):
-        data = dict()
-        for item in game:
-            data[item.tag] = item.text
-        if 'name' not in data or 'appID' not in data:
-            error_app("%s: %s" % (ERROR_INVALID_GAME, str(game)))
-        self.name = data['name']
-        self.appID = data['appID']
-        self.details = None
-        self.achievements = None
-        self.screenshots = None
-
-    # load game details
-    def load_details(self, overwrite=False):
-        if self.details is not None and not overwrite:
-            return
-        try:
-            self.details = jloads(urlopen(Request("%s%s" % (STEAM_APP_DETAILS_BASE_URL, self.appID),headers=URLLIB_HEADERS)).read().decode())[self.appID]['data']
-        except:
-            self.details = dict()
-        if 'supported_languages' in self.details:
-            self.details['supported_languages'] = self.details['supported_languages'].replace('<strong>','').replace('</strong>','').replace('<br>',', ').split(', ')
-
-    # load game achievements
-    def load_achievements(self, username, overwrite=False):
-        if self.achievements is not None and not overwrite:
-            return
-        url = "%s/%s/stats/%s" % (STEAM_COMMUNITY_BASE_URL, username, self.appID)
-        xml = ElementTree.parse(urlopen(Request(url + STEAM_URL_SUFFIX_XML,headers=URLLIB_HEADERS)))
-        xml_stats = None; xml_achievements = None
-        for curr in xml.getroot():
-            try:
-                #if curr.tag == 'stats':
-                #    xml_stats = curr
-                if curr.tag == 'achievements':
-                    xml_achievements = curr; break
-            except:
-                pass
-        self.achievements = [Achievement(curr) for curr in xml_achievements]
-
-    # load game screenshots
-    def load_screenshots(self, username, overwrite=False):
-        if self.screenshots is not None and not overwrite:
-            return
-        message("%s: %s" % (TEXT_LOADING_SCREENSHOTS, self.name))
-        base_url = "%s/%s/screenshots?appid=%s" % (STEAM_COMMUNITY_BASE_URL, username, self.appID)
-        base_url += "&sort=oldestfirst"
-        base_url += "&browsefilter=myfiles"
-        base_url += "&view=grid"
-        base_url += "&p=" # will populate with page number in loop below
-        self.screenshots = list()
-        curr_page_num = 1; total_num_screenshots = None
-        while total_num_screenshots is None or len(self.screenshots) < total_num_screenshots:
-            url = "%s%d" % (base_url, curr_page_num)
-            message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num), end='\r')
-            html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
-            curr_page_screenshots = list()
-            for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
-                curr_page_screenshots = [SharedFile(int(l.split('?id=')[1].split('"')[0])) for l in html_lines if 'filedetails' in l and '?id=' in l]
-                if len(curr_page_screenshots) != 0:
-                    break # successful download
-                sleep(REATTEMPT_DELAY)
-            if len(curr_page_screenshots) == 0:
-                error_app("%s: %s\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.name, url), crash=False)
-                self.screenshots = None; return
-            self.screenshots += curr_page_screenshots; curr_page_num += 1
-            if total_num_screenshots is None:
-                total_num_screenshots = int([l for l in html_lines if 'Showing ' in l][0].split(' of ')[1].split('<')[0])
-
-    # view game details
-    def view_details(self):
-        self.load_details()
-        text = '<ansired>- App ID:</ansired> %s' % self.appID
-        if 'release_date' in self.details and 'date' in self.details['release_date']:
-            text += '\n<ansired>- Release Date:</ansired> %s' % self.details['release_date']['date']
-        if 'developers' in self.details:
-            text += '\n<ansired>- Developers:</ansired> %s' % ', '.join(self.details['developers'])
-        if 'publishers' in self.details:
-            text += '\n<ansired>- Publishers:</ansired> %s' % ', '.join(self.details['publishers'])
-        if 'price_overview' in self.details and 'final_formatted' in self.details['price_overview']:
-            text += '\n<ansired>- Price:</ansired> %s' % self.details['price_overview']['final_formatted']
-        if 'achievements' in self.details and 'total' in self.details['achievements']:
-            text += '\n<ansired>- Achievements:</ansired> %s' % self.details['achievements']['total']
-        if 'genres' in self.details:
-            text += '\n<ansired>- Genres:</ansired> %s' % break_string(', '.join(sorted(g['description'] for g in self.details['genres'])))
-        if 'categories' in self.details:
-            text += '\n<ansired>- Categories:</ansired> %s' % break_string(', '.join(c['description'] for c in self.details['categories']))
-        if 'controller_support' in self.details:
-            text += '\n<ansired>- Controller Support:</ansired> %s' % self.details['controller_support']
-        if 'supported_languages' in self.details:
-            text += '\n<ansired>- Supported Languages:</ansired> %s' % break_string(', '.join(self.details['supported_languages']))
-        if 'short_description' in self.details:
-            col = LINE_WIDTH
-            text += '\n<ansired>- Short Description:</ansired>'
-            text += break_string(self.details['short_description'])
-        message_dialog(title=HTML("<ansiblue>%s</ansiblue>" % self.name), text=HTML(text.strip())).run()
-
-    # view game achievements
-    def view_achievements(self, username=None):
-        self.load_achievements(username)
-        locked = list(); unlocked = list()
-        for achievement in self.achievements:
-            if achievement.unlock_time is None:
-                locked.append((achievement, HTML('<ansired>%s</ansired>' % achievement.name)))
-            else:
-                unlocked.append((achievement, HTML('<ansigreen>%s</ansigreen>' % achievement.name)))
-        achievement_list_dialog = radiolist_dialog(title=HTML("<ansiblue>%s</ansiblue> <ansiblack>(<ansigreen>%d</ansigreen>/%d)</ansiblack>" % (self.name, len(unlocked), len(self.achievements))), values=unlocked+locked)
-        while True:
-            achievement_selection = achievement_list_dialog.run()
-            if achievement_selection is None:
-                break
-            achievement_selection.view_details()
-
-    # view game screenshots
-    def view_screenshots(self, username=None):
-        self.load_screenshots(username)
-        if self.screenshots is None:
-            return # loading screenshots failed
-        values = [('download_all',HTML("<ansigreen>Download All</ansigreen>"))] + [(screenshot, str(screenshot.ID)) for screenshot in self.screenshots]
-        title_str = clean_html("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.name, len(self.screenshots)))
-        screenshot_list_dialog = radiolist_dialog(title=HTML(title_str), values=values)
-        while True:
-            screenshot_selection = screenshot_list_dialog.run()
-            if screenshot_selection is None:
-                break
-            elif screenshot_selection == 'download_all':
-                self.download_all_screenshots()
-            else:
-                screenshot_selection.view_details()
-
-    # download all screenshots
-    def download_all_screenshots(self):
-        destination = select_path_app(files=False)
-        if destination is None:
-            return
-        for i, screenshot in enumerate(self.screenshots):
-            message("Downloading screenshot %d of %d" % (i+1, len(self.screenshots)), end='\r')
-            screenshot.load_data(); posted_date = screenshot.data['Posted']
-            out_path = "%s/%s_%s.jpg" % (destination, str(posted_date).replace(':','-').replace(' ','_'), screenshot.ID)
-            screenshot.download(out_path); File(out_path).set(created=posted_date, modified=posted_date, accessed=posted_date)
-
-    # str function
-    def __str__(self):
-        return str(self.__dict__)
-
-    # comparison functions
-    def __lt__(self, o):
-        return self.name.lower() < o.name.lower()
-    def __le__(self, o):
-        return self.name.lower() <= o.name.lower()
-    def __gt__(self, o):
-        return self.name.lower() > o.name.lower()
-    def __ge__(self, o):
-        return self.name.lower() >= o.name.lower()
-    def __eq__(self, o):
-        return type(self) == type(o) and self.appID == o.appID
-
 # helper class to represent a user
 class User:
     # constructor
     def __init__(self, username):
+        # initialize instance variables
+        self.games = dict() # self.games[app_id] = {'title': game title}
+        self.screenshots = dict() # self.screenshots[app_id] = list of screenshots
+
         # prepare for loading user data
         message(s="%s: %s" % (TEXT_LOADING_USER_DATA, username))
         url_community = "%s/%s" % (STEAM_COMMUNITY_BASE_URL, username)
@@ -440,7 +251,7 @@ class User:
         url_screenshots = "%s/screenshots" % url_community
 
         # load user data
-        xml = ElementTree.parse(urlopen(Request(url_community + STEAM_URL_SUFFIX_XML,headers=URLLIB_HEADERS)))
+        xml = ElementTree.parse(urlopen(Request(url_community + "?xml=1",headers=URLLIB_HEADERS)))
         for curr in xml.getroot():
             try:
                 if curr.tag == 'steamID':
@@ -459,24 +270,6 @@ class User:
                     self.real_name = curr.text.strip()
             except:
                 pass
-
-        # load game data
-        xml = ElementTree.parse(urlopen(Request(url_games + STEAM_URL_SUFFIX_XML,headers=URLLIB_HEADERS))); xml_games = None
-        for curr in xml.getroot():
-            if curr.tag == 'error':
-                error_app(curr.text.strip())
-            try:
-                if curr.tag == 'games':
-                    xml_games = curr; break
-            except Exception as e:
-                pass
-        if xml_games is None:
-            error_app(ERROR_LOAD_GAMES_FAILED)
-        self.games_list = sorted(Game(xml_game) for xml_game in xml_games)
-        self.games_map = {game.appID:game for game in self.games_list}
-
-        # load games with screenshots
-        self.games_with_screenshots = {l.split("'appid': '")[1].split("'")[0] for l in urlopen(Request(url_screenshots,headers=URLLIB_HEADERS)).read().decode().splitlines() if 'javascript:SelectSharedFilesContentFilter' in l and 'appid' in l}
 
     # comparison functions
     def __lt__(self, o):
@@ -502,46 +295,105 @@ class User:
         if hasattr(self, 'member_since'):
             text += '\n<ansired>- Member Since:</ansired> %s' % self.member_since
         text = HTML(text.strip())
-        if len(self.games_list) == 0:
-            message_dialog(title=title, text=text).run()
-        else:
-            return radiolist_dialog(title=title, text=text, values=[
-                (self.view_library, HTML("<ansiblue>Library</ansiblue> (%d games)" % len(self.games_list))),
-                (self.view_achievements, HTML("<ansiblue>Achievements</ansiblue>")),
-                (self.view_screenshots, HTML("<ansiblue>Screenshots</ansiblue> (%d games)" % len(self.games_with_screenshots))),
-            ]).run()
+        return radiolist_dialog(title=title, text=text, values=[
+            (self.view_screenshots_user, HTML("<ansiblue>Screenshots</ansiblue>")),
+        ]).run()
 
-    # view games
+    # view games for this user
     def view_games(self, mode):
-        if mode == 'library':
-            title = HTML("<ansiblue>%s's Library</ansiblue> <ansiblack>(%d games)</ansiblack>" % (self.username, len(self.games_list)))
-            values = [(game,game.name) for game in self.games_list]
-        elif mode == 'achievements':
-            title = HTML("<ansiblue>%s's Achievements</ansiblue>" % self.username)
-            values = [(game,game.name) for game in self.games_list]
-        elif mode == 'screenshots':
-            title = HTML("<ansiblue>%s's Screenshots</ansiblue> <ansiblack>(%d games)</ansiblack>" % (self.username, len(self.games_with_screenshots)))
-            values = [(game,game.name) for game in self.games_list if game.appID in self.games_with_screenshots]
+        if mode == 'screenshots':
+            title = HTML("<ansiblue>%s's Screenshots</ansiblue> <ansiblack>(%d games)</ansiblack>" % (self.username, len(self.screenshots)))
+            values = [(app_id,self.games[app_id]['title']) for app_id in sorted(self.screenshots.keys(), key=lambda x: self.games[x]['title'].lower())]
         else:
             error_app(ERROR_INVALID_GAMES_LIST_MODE)
         game_list_dialog = radiolist_dialog(title=title, values=values)
         while True:
-            game_selection = game_list_dialog.run()
-            if game_selection is None:
+            app_id = game_list_dialog.run()
+            if app_id is None:
                 break
-            if mode == 'library':
-                game_selection.view_details()
-            elif mode == 'achievements':
-                game_selection.view_achievements(self.username)
-            elif mode == 'screenshots':
-                game_selection.view_screenshots(self.username)
+            self.view_screenshots(app_id)
         return self.view_main
-    def view_library(self):
-        return self.view_games('library')
-    def view_achievements(self):
-        return self.view_games('achievements')
-    def view_screenshots(self):
+
+    # view user's screenshots
+    def view_screenshots_user(self):
+        self.load_screenshot_games()
         return self.view_games('screenshots')
+
+    # load list of games user has screenshots in
+    def load_screenshot_games(self, overwrite=False):
+        if (len(self.screenshots) != 0) and (not overwrite):
+            return
+        message("%s: %s" % (TEXT_LOADING_SCREENSHOTS, self.username))
+        base_url = "%s/%s/screenshots" % (STEAM_COMMUNITY_BASE_URL, username)
+        html_lines = [l.strip() for l in urlopen(Request(base_url,headers=URLLIB_HEADERS)).read().decode().splitlines()]
+        for l in html_lines:
+            if 'javascript:SelectSharedFilesContentFilter' in l:
+                if "'appid':" not in l:
+                    continue
+                app_id = l.split("'appid':")[-1].split("'")[1].strip()
+                if app_id == '0':
+                    continue
+                title = l.split('});">')[1].replace('</div>','')
+                self.games[app_id] = {'title':title}
+                self.screenshots[app_id] = None # will be filled by self.load_screenshots(app_id)
+
+    # load user's screenshots for specific game
+    def load_screenshots(self, app_id, overwrite=False):
+        if (self.screenshots[app_id] is not None) and (not overwrite):
+            return
+        message("%s: %s" % (TEXT_LOADING_SCREENSHOTS, self.games[app_id]['title']))
+        base_url = "%s/%s/screenshots?appid=%s" % (STEAM_COMMUNITY_BASE_URL, self.username, app_id)
+        base_url += "&sort=oldestfirst"
+        base_url += "&browsefilter=myfiles"
+        base_url += "&view=grid"
+        base_url += "&p=" # will populate with page number in loop below
+        curr_game_screenshots = list()
+        curr_page_num = 1; total_num_screenshots = None
+        while total_num_screenshots is None or len(curr_game_screenshots) < total_num_screenshots:
+            url = "%s%d" % (base_url, curr_page_num)
+            message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num), end='\r')
+            html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
+            curr_page_screenshots = list()
+            for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
+                curr_page_screenshots = [SharedFile(int(l.split('?id=')[1].split('"')[0])) for l in html_lines if 'filedetails' in l and '?id=' in l]
+                if len(curr_page_screenshots) != 0:
+                    break # successful download
+                sleep(REATTEMPT_DELAY)
+            if len(curr_page_screenshots) == 0:
+                error_app("%s: %s\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.games[app_id]['title'], url), crash=False)
+                return
+            curr_game_screenshots += curr_page_screenshots; curr_page_num += 1
+            if total_num_screenshots is None:
+                total_num_screenshots = int([l for l in html_lines if 'Showing ' in l][0].split(' of ')[1].split('<')[0])
+        self.screenshots[app_id] = sorted(curr_game_screenshots)
+
+    # view user's screenshots for specific game
+    def view_screenshots(self, app_id):
+        self.load_screenshots(app_id)
+        if (self.screenshots[app_id] is None) or (len(self.screenshots[app_id]) == 0):
+            return # no screenshots
+        values = [('download_all',HTML("<ansigreen>Download All</ansigreen>"))] + [(screenshot, str(screenshot.ID)) for screenshot in self.screenshots[app_id]]
+        title_str = clean_html("<ansiblue>%s</ansiblue> <ansiblack>(%d screenshots)</ansiblack>" % (self.games[app_id]['title'], len(self.screenshots[app_id])))
+        screenshot_list_dialog = radiolist_dialog(title=HTML(title_str), values=values)
+        while True:
+            screenshot_selection = screenshot_list_dialog.run()
+            if screenshot_selection is None:
+                break
+            elif screenshot_selection == 'download_all':
+                self.download_all_screenshots(app_id)
+            else:
+                screenshot_selection.view_details()
+
+    # download all screenshots for a specific game
+    def download_all_screenshots(self, app_id):
+        destination = select_path_app(files=False)
+        if destination is None:
+            return
+        for i, screenshot in enumerate(self.screenshots[app_id]):
+            message("Downloading screenshot %d of %d" % (i+1, len(self.screenshots[app_id])), end='\r')
+            screenshot.load_data(); posted_date = screenshot.data['Posted']
+            out_path = "%s/%s_%s.jpg" % (destination, str(posted_date).replace(':','-').replace(' ','_'), screenshot.ID)
+            screenshot.download(out_path); File(out_path).set(created=posted_date, modified=posted_date, accessed=posted_date)
 
 # main content
 if __name__ == "__main__":
