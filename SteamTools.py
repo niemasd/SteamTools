@@ -26,6 +26,10 @@ try:
     from filedate import File
 except:
     error("Unable to import 'filedate'. Install via: 'pip install filedate'")
+try:
+    from tqdm import tqdm
+except:
+     error("Unable to import 'tqdm'. Install via: 'pip install tqdm'")
 
 # useful constants
 VERSION = '0.0.3'
@@ -33,7 +37,8 @@ WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
 NUM_SHARED_FILE_ATTEMPTS = 10
-REATTEMPT_DELAY = 0.5
+DELAY_REATTEMPT = 2
+DELAY_TOO_MANY_REQUESTS = 60
 URLLIB_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36'}
 
 # URL stuff
@@ -159,14 +164,19 @@ class SharedFile:
         for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
             try:
                 html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines(); break
-            except:
-                sleep(REATTEMPT_DELAY)
+            except Exception as e:
+                if 'too many requests' in str(e).lower():
+                    print("Received 'Too Many Requests' error. Waiting %d seconds..." % DELAY_TOO_MANY_REQUESTS)
+                    sleep(DELAY_TOO_MANY_REQUESTS)
+                else:
+                    print(e)
+                sleep(DELAY_REATTEMPT)
         if html_lines is None:
-            error_app(ERROR_LOAD_DATA_FAILED, crash=False); self.data = None; return
+            error_app('%s\n%s' % (ERROR_LOAD_DATA_FAILED, url), crash=False); self.data = None; return
         details_stats_names = list(); details_stats_vals = list()
         for i, l in enumerate(html_lines):
             if 'letterbox=false' in l:
-                assert 'image_url' not in self.data, "Duplace image: %s" % url
+                assert 'image_url' not in self.data, "Duplicate image: %s" % url
                 self.data['image_url'] = l.split('href="')[1].split('"')[0].strip()
             elif 'detailsStatsContainerLeft' in l:
                 for j, jl in enumerate(html_lines[i+1:]):
@@ -212,7 +222,7 @@ class SharedFile:
                 try:
                     data = urlopen(Request(self.data['image_url'],headers=URLLIB_HEADERS)).read(); break
                 except:
-                    sleep(REATTEMPT_DELAY)
+                    sleep(DELAY_REATTEMPT)
             if data is None:
                 error_app(ERROR_LOAD_DATA_FAILED)
             f = open(destination_path, 'wb'); f.write(data); f.close()
@@ -352,13 +362,13 @@ class User:
         while total_num_screenshots is None or len(curr_game_screenshots) < total_num_screenshots:
             url = "%s%d" % (base_url, curr_page_num)
             message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num), end='\r')
-            html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
             curr_page_screenshots = list()
             for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
+                html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
                 curr_page_screenshots = [SharedFile(int(l.split('?id=')[1].split('"')[0])) for l in html_lines if 'filedetails' in l and '?id=' in l]
                 if len(curr_page_screenshots) != 0:
                     break # successful download
-                sleep(REATTEMPT_DELAY)
+                sleep(DELAY_REATTEMPT)
             if len(curr_page_screenshots) == 0:
                 error_app("%s: %s\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.games[app_id]['title'], url), crash=False)
                 return
@@ -389,9 +399,11 @@ class User:
         destination = select_path_app(files=False)
         if destination is None:
             return
-        for i, screenshot in enumerate(self.screenshots[app_id]):
-            message("Downloading screenshot %d of %d" % (i+1, len(self.screenshots[app_id])), end='\r')
-            screenshot.load_data(); posted_date = screenshot.data['Posted']
+        for i, screenshot in tqdm(enumerate(self.screenshots[app_id]), total=len(self.screenshots[app_id])):
+            screenshot.load_data()
+            if screenshot.data is None:
+                return # early exit if failed to download
+            posted_date = screenshot.data['Posted']
             out_path = "%s/%s_%s.jpg" % (destination, str(posted_date).replace(':','-').replace(' ','_'), screenshot.ID)
             screenshot.download(out_path); File(out_path).set(created=posted_date, modified=posted_date, accessed=posted_date)
 
