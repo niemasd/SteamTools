@@ -13,8 +13,10 @@ from glob import glob
 from json import loads as jloads
 from os import getcwd, makedirs
 from os.path import abspath, expanduser, isfile, isdir
+from random import uniform
 from sys import argv, stderr, stdout
-from time import sleep
+from time import monotonic, sleep
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 try:
@@ -32,13 +34,15 @@ except:
      error("Unable to import 'tqdm'. Install via: 'pip install tqdm'")
 
 # useful constants
-VERSION = '0.0.3'
+VERSION = '0.0.4'
 WINDOW_TITLE = HTML("<ansiblue>SteamTools v%s</ansiblue>" % VERSION)
 ERROR_TITLE = HTML("<ansired>ERROR</ansired>")
 LINE_WIDTH = 120
 NUM_SHARED_FILE_ATTEMPTS = 10
-DELAY_REATTEMPT = 2
-DELAY_TOO_MANY_REQUESTS = 60
+MIN_REQUEST_INTERVAL = 2.0
+INITIAL_BACKOFF = 30.0
+MAX_BACKOFF = 300.0
+LAST_STEAM_REQUEST = 0.0
 URLLIB_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36'}
 
 # URL stuff
@@ -139,6 +143,40 @@ def break_string(s, max_width=LINE_WIDTH):
         text += (word + ' '); col += (len(word) + 1)
     return text
 
+# helper function to download something from Steam
+def steam_get(url, attempts=NUM_SHARED_FILE_ATTEMPTS):
+    global LAST_STEAM_REQUEST
+    backoff = INITIAL_BACKOFF
+    for attempt in range(attempts):
+        elapsed = monotonic() - LAST_STEAM_REQUEST
+        wait = MIN_REQUEST_INTERVAL - elapsed
+        if wait > 0:
+            sleep(wait + uniform(0, 0.5))
+        LAST_STEAM_REQUEST = monotonic()
+        try:
+            with urlopen(Request(url, headers=URLLIB_HEADERS)) as response:
+                return response.read()
+        except HTTPError as e:
+            if e.code != 429 and not (500 <= e.code < 600):
+                raise
+            retry_after = e.headers.get('Retry-After')
+            if retry_after and retry_after.is_digit():
+                wait = max(float(retry_after), MIN_REQUEST_INTERVAL)
+            else:
+                wait = min(backoff, MAX_BACKOFF) + uniform(0, 2)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+            if e.code == 429:
+                print("Steam rate limit (429). Waiting %.0f seconds before retry..." % wait)
+            else:
+                print("Steam server error (%d). Waiting %.0f seconds before retry..." % (e.code, wait))
+            sleep(wait)
+        except URLError as e:
+            wait = min(backoff, MAX_BACKOFF) + uniform(0, 2)
+            backoff = min(backoff * 2, MAX_BACKOFF)
+            print("Network error: %s. Waiting %.0f seconds before retry..." % (e, wait))
+            sleep(wait)
+    return None
+
 # apps
 APPS = {
     'welcome': message_dialog(title=WINDOW_TITLE, text=TEXT_WELCOME),
@@ -160,18 +198,10 @@ class SharedFile:
     def load_data(self, overwrite=False):
         if self.data is not None and not overwrite:
             return
-        self.data = dict(); url = self.get_url_details(); html_lines = None
-        for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
-            try:
-                html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines(); break
-            except Exception as e:
-                if 'too many requests' in str(e).lower():
-                    print("Received 'Too Many Requests' error. Waiting %d seconds..." % DELAY_TOO_MANY_REQUESTS)
-                    sleep(DELAY_TOO_MANY_REQUESTS)
-                else:
-                    print(e)
-                sleep(DELAY_REATTEMPT)
-        if html_lines is None:
+        self.data = dict(); url = self.get_url_details()
+        try:
+            html_lines = steam_get(url).decode().splitlines()
+        except:
             error_app('%s\n%s' % (ERROR_LOAD_DATA_FAILED, url), crash=False); self.data = None; return
         details_stats_names = list(); details_stats_vals = list()
         for i, l in enumerate(html_lines):
@@ -217,15 +247,14 @@ class SharedFile:
         if isfile(destination_path) and not overwrite:
             error("%s: %s" % (ERROR_FILE_EXISTS, destination_path), crash=False)
         else:
-            self.load_data(); data = None
-            for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
-                try:
-                    data = urlopen(Request(self.data['image_url'],headers=URLLIB_HEADERS)).read(); break
-                except:
-                    sleep(DELAY_REATTEMPT)
+            self.load_data()
+            if self.data is None:
+                return
+            data = steam_get(self.data['image_url'])
             if data is None:
-                error_app(ERROR_LOAD_DATA_FAILED)
-            f = open(destination_path, 'wb'); f.write(data); f.close()
+                error_app(ERROR_LOAD_DATA_FAILED); return
+            with open(destination_path, mode='wb') as f:
+                f.write(data)
 
     # str function
     def __str__(self):
@@ -363,15 +392,12 @@ class User:
             url = "%s%d" % (base_url, curr_page_num)
             message("%s: %d" % (TEXT_LOADING_PAGE, curr_page_num), end='\r')
             curr_page_screenshots = list()
-            for _ in range(NUM_SHARED_FILE_ATTEMPTS): # try multiple times (sometimes fails on first try)
-                html_lines = urlopen(Request(url,headers=URLLIB_HEADERS)).read().decode().splitlines()
+            try:
+                html_lines = steam_get(url).decode().splitlines()
                 curr_page_screenshots = [SharedFile(int(l.split('?id=')[1].split('"')[0])) for l in html_lines if 'filedetails' in l and '?id=' in l]
-                if len(curr_page_screenshots) != 0:
-                    break # successful download
-                sleep(DELAY_REATTEMPT)
-            if len(curr_page_screenshots) == 0:
-                error_app("%s: %s\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.games[app_id]['title'], url), crash=False)
-                return
+                assert len(curr_page_screenshots) != 0
+            except Exception as e:
+                error_app("%s: %s\n%s\n\n%s" % (ERROR_LOAD_SCREENSHOTS_FAILED, self.games[app_id]['title'], url, e), crash=False); return
             curr_game_screenshots += curr_page_screenshots; curr_page_num += 1
             if total_num_screenshots is None:
                 total_num_screenshots = int([l for l in html_lines if 'Showing ' in l][0].split(' of ')[1].split('<')[0])
@@ -402,9 +428,11 @@ class User:
         for i, screenshot in tqdm(enumerate(self.screenshots[app_id]), total=len(self.screenshots[app_id])):
             screenshot.load_data()
             if screenshot.data is None:
-                return # early exit if failed to download
+                print(f"Failed to download: {screenshot}"); return # early exit if failed to download
             posted_date = screenshot.data['Posted']
             out_path = "%s/%s_%s.jpg" % (destination, str(posted_date).replace(':','-').replace(' ','_'), screenshot.ID)
+            if isfile(out_path):
+                print(f"{out_path} already exists. Skipping..."); continue
             screenshot.download(out_path); File(out_path).set(created=posted_date, modified=posted_date, accessed=posted_date)
 
 # main content
