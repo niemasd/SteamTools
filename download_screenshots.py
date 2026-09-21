@@ -183,7 +183,7 @@ def download_screenshots(progress, wait=DEFAULT_WAIT):
 # main program logic
 def main():
     args = parse_args()
-    progress_pkl_path = args.output / f'{args.username}.{args.appid}.pkl'
+    progress_pkl_path = args.output / f'progress.{args.username}.{args.appid}.pkl'
     if args.refresh:
         progress_pkl_path.unlink(missing_ok=True)
     progress = Progress(progress_pkl_path)
